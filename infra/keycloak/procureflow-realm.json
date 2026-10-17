@@ -1,0 +1,40 @@
+{
+  "realm": "procureflow",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "loginWithEmailAllowed": false,
+  "bruteForceProtected": true,
+  "clients": [{
+    "clientId": "procureflow-web",
+    "protocol": "openid-connect",
+    "publicClient": true,
+    "standardFlowEnabled": true,
+    "implicitFlowEnabled": false,
+    "directAccessGrantsEnabled": false,
+    "serviceAccountsEnabled": false,
+    "redirectUris": ["${FRONTEND_ORIGIN}/", "${FRONTEND_ALT_ORIGIN}/"],
+    "webOrigins": ["${FRONTEND_ORIGIN}", "${FRONTEND_ALT_ORIGIN}"],
+    "attributes": {
+      "pkce.code.challenge.method": "S256",
+      "post.logout.redirect.uris": "${FRONTEND_ORIGIN}/##${FRONTEND_ALT_ORIGIN}/"
+    },
+    "protocolMappers": [{
+      "name": "procureflow-api-audience",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "config": {"included.custom.audience": "procureflow-api", "access.token.claim": "true", "id.token.claim": "false"}
+    }]
+  }],
+  "users": [
+    {"id":"3d1a1b99-7f54-3e55-b4db-97dc28f113fd","username":"a-employee","enabled":true,"firstName":"Larkvane","lastName":"Employee","email":"a-employee@example.invalid","emailVerified":true,"credentials":[{"type":"password","value":"${DEMO_PASSWORD}","temporary":false}]},
+    {"id":"8319bed7-ed5f-3f77-944e-fe50fbc8bc01","username":"a-manager","enabled":true,"firstName":"Larkvane","lastName":"Manager","email":"a-manager@example.invalid","emailVerified":true,"credentials":[{"type":"password","value":"${DEMO_PASSWORD}","temporary":false}]},
+    {"id":"e2f1720b-f852-33c5-8d51-1a042aae5b01","username":"a-finance","enabled":true,"firstName":"Larkvane","lastName":"Finance","email":"a-finance@example.invalid","emailVerified":true,"credentials":[{"type":"password","value":"${DEMO_PASSWORD}","temporary":false}]},
+    {"id":"d42563dd-6364-33b5-81d7-2e8cea555e2f","username":"a-admin","enabled":true,"firstName":"Larkvane","lastName":"Administrator","email":"a-admin@example.invalid","emailVerified":true,"credentials":[{"type":"password","value":"${DEMO_PASSWORD}","temporary":false}]},
+    {"id":"c68a19cb-adcb-363d-bd63-a1f88217b61a","username":"b-employee","enabled":true,"firstName":"Northstar","lastName":"Employee","email":"b-employee@example.invalid","emailVerified":true,"credentials":[{"type":"password","value":"${DEMO_PASSWORD}","temporary":false}]},
+    {"id":"984b0663-f2ca-34b9-8b70-222946034b07","username":"b-manager","enabled":true,"firstName":"Northstar","lastName":"Manager","email":"b-manager@example.invalid","emailVerified":true,"credentials":[{"type":"password","value":"${DEMO_PASSWORD}","temporary":false}]},
+    {"id":"39aac60f-61fc-38d4-b6e6-29f5386419b2","username":"b-finance","enabled":true,"firstName":"Northstar","lastName":"Finance","email":"b-finance@example.invalid","emailVerified":true,"credentials":[{"type":"password","value":"${DEMO_PASSWORD}","temporary":false}]},
+    {"id":"18fee199-9ce7-32f9-afad-ddcc16fa5c4b","username":"b-admin","enabled":true,"firstName":"Northstar","lastName":"Administrator","email":"b-admin@example.invalid","emailVerified":true,"credentials":[{"type":"password","value":"${DEMO_PASSWORD}","temporary":false}]}
+  ]
+}

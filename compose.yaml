@@ -2,11 +2,17 @@ name: procureflow
 
 services:
   postgres:
-    image: postgres:18.6-bookworm@sha256:afc7e2d441324c0388fa80c3d24f733b4194a4eb7f47dd8ee2b08eb1a24a647c
+    image: procureflow-postgres:0.1.0-p1
+    build:
+      context: .
+      dockerfile: infra/postgres/Dockerfile
     environment:
       POSTGRES_DB: procureflow
       POSTGRES_USER: procureflow
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local development}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD for local development}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD for local development}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD for local development}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -27,8 +33,13 @@ services:
         MODULE: app
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/procureflow
-      DB_USERNAME: procureflow
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local development}
+      DB_USERNAME: procureflow_app
+      DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD for local development}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD for local development}
+      OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8180}/realms/procureflow
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/procureflow/protocol/openid-connect/certs
+      FRONTEND_ORIGINS: http://localhost:${FRONTEND_PORT:-4200},http://127.0.0.1:${FRONTEND_PORT:-4200}
+      SPRING_PROFILES_ACTIVE: local-demo
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
     depends_on:
@@ -67,6 +78,41 @@ services:
       SERVER_PORT: 8081
     read_only: true
     tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  # Local-only OIDC realm and fictional users; no real account password is committed.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD for local development}
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8180}
+      KC_HOSTNAME_STRICT: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: local-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD for local development}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:?Set DEMO_PASSWORD for fictional local users}
+      FRONTEND_ORIGIN: http://localhost:${FRONTEND_PORT:-4200}
+      FRONTEND_ALT_ORIGIN: http://127.0.0.1:${FRONTEND_PORT:-4200}
+      JAVA_OPTS_KC_HEAP: "-Xms128m -Xmx512m"
+    volumes:
+      - ./infra/keycloak/procureflow-realm.json:/opt/keycloak/data/import/procureflow-realm.json:ro
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # The upstream image intentionally contains no curl/wget.
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3; grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 3s
+      start_period: 60s
+      retries: 36
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
 

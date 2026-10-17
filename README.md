@@ -4,7 +4,7 @@
 
 ProcureFlow is a corporate purchase-request and approval application under development. It is a Java/Spring backend portfolio project with a planned complete Angular interface, intended to make engineering decisions understandable and verifiable in interviews.
 
-**Current status: P0 foundation accepted after independent review and passing GitHub CI.** [Verified run](https://github.com/kemselcuk/procureflow/actions/runs/39049180018) on revision `57d4362`; P1 identity/company isolation has not started. Execution evidence is recorded in the [plan](docs/PLAN.md#p0-execution-evidence). Product features remain planned until their acceptance checks pass.
+**Current status: P0 accepted; P1 identity/company isolation accepted locally after independent review.** P1's database/token tests, real-provider protocol check and R1/R2 reviews passed; P1 publication/hosted verification is pending. The [P0 run](https://github.com/kemselcuk/procureflow/actions/runs/39049180018) applies to revision `57d4362`, not P1. Purchase requests and approvals remain planned; see the [plan](docs/PLAN.md#p1-execution-record).
 
 ## Project documents
 
@@ -17,9 +17,9 @@ Each subject has one authoritative document. This README is the entry point for 
 ## Implemented foundation
 
 - Java 21/Maven multi-module build: Spring Boot app, optional worker health scaffold and an intentionally empty event-contract library (contracts follow in P2).
-- Public `GET /api/system`, OpenAPI JSON and health endpoints; other app routes deny by default. **There is no user login or business API yet.**
-- PostgreSQL tenant-root migration managed by Flyway, validated by JPA; no demo data is automatically inserted.
-- Standalone Angular foundation page with real API connectivity, loading/failure/retry states and component tests.
+- Public system/OIDC configuration, OpenAPI and health endpoints; protected identity, company-membership, department and monthly-budget APIs under P1 verification. **Purchase/approval APIs are not implemented yet.**
+- Flyway schema with tenant-composite constraints; separate runtime/migration/Keycloak database credentials, and application audit rows protected against update/delete.
+- Standalone Angular page with Keycloak Code+PKCE integration, membership status, loading/failure/retry states and component tests. Full product screens remain for P5.
 - Pinned multi-stage containers and Compose, checked locally and on standard Ubuntu GitHub runners; a least-permission CI workflow repeats the foundation checks without deployment or paid storage.
 
 ## Intended product
@@ -36,16 +36,16 @@ Status is deliberately scoped: foundation checks do not prove the future product
 
 | Technology | Intended purpose | Code / configuration | Evidence / remaining gate |
 | --- | --- | --- | --- |
-| Java 21, Spring Boot, Maven | Modular monolith and separate notification worker | [Build](pom.xml), [app](backend/app), [worker](backend/notification-worker) | Java 21.0.12.1 build, 3 HTTP-boundary tests and 2 real-PostgreSQL integration tests passed; business transaction boundaries remain planned |
-| Spring Security, Keycloak/OIDC | Login, validated JWTs and company-scoped permissions | Identity module, frontend authentication, local realm configuration | Real OIDC login plus invalid-token, role and cross-company denial tests |
-| JPA/Hibernate, PostgreSQL | Persistence, tenant relationships and concurrency control | [Company mapping](backend/app/src/main/java/com/procureflow/app/identity/persistence/CompanyEntity.java) | Schema validation and company uniqueness/nonblank constraints passed against PostgreSQL 18.6; tenant/budget behavior is not implemented |
+| Java 21, Spring Boot, Maven | Modular monolith and separate notification worker | [Build](pom.xml), [app](backend/app), [worker](backend/notification-worker) | Java 21.0.12.1 builds and real-PostgreSQL security/migration checks passed; purchase transaction boundaries follow in P2/P3 |
+| Spring Security, Keycloak/OIDC | Login, validated JWTs and company-scoped permissions | [Identity](backend/app/src/main/java/com/procureflow/app/identity), [realm](infra/keycloak/procureflow-realm.json), [adapter boundary](frontend/src/app/authentication.ts) | [Security tests](backend/app/src/test/java/com/procureflow/app/IdentityAccessIT.java), [real-provider probe](scripts/oidc_smoke.py) and independent R1/R2 reviews passed; [P1 evidence](docs/PLAN.md#p1-execution-record) |
+| JPA/Hibernate, PostgreSQL | Persistence, tenant relationships and concurrency control | [Budget mappings](backend/app/src/main/java/com/procureflow/app/budgets), [access queries](backend/app/src/main/java/com/procureflow/app/identity/ActorAccess.java) | Real PostgreSQL 18.6 checks cover composite tenant FKs, current membership, authorization locking and budget-limit constraints; final-approval concurrency follows in P3 |
 | Flyway | Reproducible schema and constraints | [Migration](backend/app/src/main/resources/db/migration/V1__create_company.sql), [integration test](backend/app/src/test/java/com/procureflow/app/FoundationIT.java) | Empty-database migration, validation and no-op remigration passed; upgrade tests follow later migrations |
-| Angular/TypeScript | Complete product UI (planned) | [Foundation page](frontend/src/app), [tests](frontend/src/app/app.spec.ts) | Type checks, 3 connection/error/retry tests and production build passed; business screens and browser journeys remain planned |
+| Angular/TypeScript | Complete product UI (planned) | [Foundation/login page](frontend/src/app), [authentication tests](frontend/src/app/authentication.spec.ts) | Type checks, 14 component/service/interceptor tests and production build passed locally; real-browser product journeys remain planned |
 | RabbitMQ, transactional outbox | Publish committed events and recover notification processing after interruptions | Outbox relay, event contracts, notification worker | Broker outage, redelivery and stopped-worker recovery tests |
 | Mailpit | Inspect locally delivered demo email | Local development services | Expected messages visible after worker recovery; SMTP limitations documented |
 | JUnit, Mockito, Testcontainers | Verify behavior at its real boundary | [HTTP boundary](backend/app/src/test/java/com/procureflow/app/system/FoundationHttpBoundaryTest.java), [PostgreSQL/OpenAPI](backend/app/src/test/java/com/procureflow/app/FoundationIT.java) | Foundation tests passed; purchase acceptance scenarios remain pending |
 | Playwright | Browser-level checks of critical user journeys | `e2e/` | Login, submission, approval, denial and notification reports |
-| Docker Compose | Reproduce the local foundation, later the complete product | [Compose](compose.yaml), [smoke check](scripts/check-foundation.py) | All 4 foundation services became healthy; API/OpenAPI/proxy/static checks and isolated cleanup passed; not a fresh-machine or complete-product claim |
+| Docker Compose | Reproduce the local foundation, later the complete product | [Compose](compose.yaml), [smoke check](scripts/check-foundation.py) | All 5 P1 services became healthy locally; API/OpenAPI/proxy/static, Code+PKCE/refresh/logout/revocation and isolated cleanup passed; not a complete-product claim |
 | GitHub Actions | Repeat foundation checks; browser checks follow in P6 | [Workflow](.github/workflows/ci.yaml) | [Passing hosted run](https://github.com/kemselcuk/procureflow/actions/runs/39049180018): backend, frontend and isolated container jobs; revision `57d4362` |
 | Terraform, when a provider is chosen | Describe a future cloud environment | Provider-specific infrastructure, deferred | Formatting/validation evidence first; an actual deployment is a separate action |
 
@@ -79,18 +79,21 @@ To check disposable containers without a host JDK/Node installation:
 python3 scripts/check-foundation.py
 ```
 
-This builds all three images, starts the app/PostgreSQL/frontend/optional worker using a unique Compose project and random loopback ports, checks readiness/API/OpenAPI/static routing, and removes **only its own test containers and database volume** in cleanup. It leaves images/build cache in Docker and writes `target/foundation-smoke.json` after success. It does not stop unrelated projects or the Docker engine. The worker check proves process readiness only, not notification processing.
+This builds three application images plus the pinned PostgreSQL image with its initialization hook, and starts app/PostgreSQL/frontend/optional worker plus pinned Keycloak in a unique local project. Secrets are generated only in memory. It checks readiness/API/OpenAPI/static routing and the real provider's authorization-code + S256 exchange, code replay denial, refresh/logout and membership revocation. The OIDC probe drives real HTTP login forms/protocol calls, **not a rendered-browser test of the Angular adapter**. The checker removes **only its own test containers and database volume** in cleanup. It leaves images/build cache in Docker and writes `target/foundation-smoke.json` after success. The worker check proves process readiness only, not notifications. Loopback ports are isolated; Keycloak/frontend ports are selected before realm import so issuer/redirect URLs remain exact.
 
-For an interactive foundation stack, choose a local-only password in the terminal environment (do not reuse an account password or commit credentials):
+For an interactive local/demo stack, set these six environment variables using private terminal input or your local secret manager: `POSTGRES_PASSWORD`, `APP_DB_PASSWORD`, `MIGRATION_DB_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `DEMO_PASSWORD`. Use distinct local-only database/admin passwords, not an account password; never paste them into chat, committed files or shared logs. `DEMO_PASSWORD` is the password you choose for the eight fictional demo identities. `.env.example` contains variable names only; no credentials are supplied by the repository.
 
 ```sh
-export POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 docker compose up --build --wait
 ```
 
-Open `http://localhost:4200` and `http://localhost:8080/v3/api-docs`. The default host ports are 4200, 8080 and 5432; override `FRONTEND_PORT`, `APP_PORT` or `POSTGRES_PORT` if occupied. The frontend container proxies API calls to the backend. `docker compose --profile worker up --build --wait` also starts the optional worker scaffold, without exposing its port. No Keycloak, broker, email delivery or demo identities are included yet.
+Open `http://localhost:4200`, `http://localhost:8080/v3/api-docs` and local Keycloak at `http://localhost:8180`. Default ports are 4200, 8080, 5432 and 8180; override `FRONTEND_PORT`, `APP_PORT`, `POSTGRES_PORT` or `KEYCLOAK_PORT` before startup if occupied. The frontend proxies API calls to the backend. `docker compose --profile worker up --build --wait` also starts the process-only worker scaffold. Broker/email delivery are not included yet.
 
-Keep the same password environment when reusing the database volume; do not regenerate it between restarts. `docker compose down` stops this development stack and preserves its database. **Destructive local reset:** `docker compose down --volumes` deletes this project's local database; use it only for data you intend to discard, for example if a disposable local password was lost.
+The Compose configuration explicitly enables the `local-demo` application profile and imports a local-only Keycloak realm. Fictional accounts are `a-employee`, `a-manager`, `a-finance`, `a-admin` for Larkvane, and the corresponding `b-…` accounts for Northstar. Each company has engineering/operations departments. Business roles live in the application database, not in token role claims. The Keycloak administration account is `local-admin` with your `KEYCLOAK_ADMIN_PASSWORD`; application company administrators are not Keycloak administrators. Account/password management stays in Keycloak. Realm startup import skips an existing realm; changing environment passwords does not reset existing users.
+
+Host application runs without `local-demo` do not seed company data. Unknown valid identities may self-register, but cannot access company endpoints until an administrator explicitly assigns an active membership. Company administration endpoints and exact scopes are in the [P1 matrix](docs/PLAN.md#p1-endpointaction-matrix). Administrative screens are still planned for P5; OpenAPI/raw API calls are the current interface.
+
+Keep the same password environment when reusing the volume; do not regenerate it between restarts. `docker compose down` stops the development stack and preserves its databases. **Destructive local reset:** `docker compose down --volumes` deletes this project's application and Keycloak databases; use it only for data you intend to discard. Existing P0-only volumes do not contain the new separated database roles because PostgreSQL init scripts run only on an empty volume: migrate roles deliberately or reset only your disposable local data. Never silently delete a volume to bypass this prerequisite.
 
 For frontend hot reload, keep the backend on port 8080 and run `npm start` from `frontend/` after stopping the frontend container; the development proxy forwards `/api/**` and OpenAPI to that backend. The service is loopback-only.
 

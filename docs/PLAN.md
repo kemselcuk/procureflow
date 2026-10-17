@@ -1,6 +1,6 @@
 # ProcureFlow implementation plan
 
-Status: **P0 complete and accepted after independent review plus passing hosted CI; P1–P7 pending**.
+Status: **P0 accepted; P1 identity, company boundary and database integrity in progress; P2–P7 pending**.
 
 Prepared: 2026-10-17. Owner: main agent. This file is the single task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md); execution rules belong in [AGENTS.md](../AGENTS.md).
 
@@ -94,13 +94,13 @@ Delegation transport, model-option selection and task boundaries are owned by th
 
 ## Phases, dependencies and acceptance
 
-P0 is complete; P1–P7 are pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. The user can spend more than 10 hours weekly; actual sequencing will adapt to the observed pace, especially Angular learning. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
+P0 is complete; P1 is in progress; P2–P7 are pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. The user can spend more than 10 hours weekly; actual sequencing will adapt to the observed pace, especially Angular learning. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
 
 ### P0 — Reproducible foundation and compatibility gate
 
 Depends on: explicit development approval. Owner: M; D may check bounded tooling/fixture details. Estimate: 6–10 hours.
 
-Current: P0.1–P0.4 complete. M accepted the phase after local checks, independent R1/R2 reviews and all three jobs passing on [hosted run 39049180018](https://github.com/kemselcuk/procureflow/actions/runs/39049180018), exact revision `57d43622873d05625a13f5d20cce1ad7efbe660f`. P1 has not started.
+Current: P0.1–P0.4 complete. M accepted the phase after local checks, independent R1/R2 reviews and all three jobs passing on [hosted run 39049180018](https://github.com/kemselcuk/procureflow/actions/runs/39049180018), exact revision `57d43622873d05625a13f5d20cce1ad7efbe660f`. P1 subsequently started as recorded below.
 
 - P0.1: establish Maven wrapper/multi-module build, Java 21 toolchain/enforcement, minimal Angular application, first container builds and repeatable development commands.
 - P0.2: resolve the [version research risks](DECISIONS.md#d002--version-baseline-and-compatibility-gates). Pin exact package/image versions and lockfiles. Inspect the actual dependency tree, including Springdoc/Jackson; choose a compatible security-patched set before accepting the baseline. Recheck primary sources if releases have changed.
@@ -112,6 +112,27 @@ Exit: Java compiler, Maven execution and CI all demonstrably use Java 21; resolv
 ### P1 — Identity, company boundary and database integrity
 
 Depends on: P0. Owner: M/S; independent R review of authorization and schema. Estimate: 12–18 hours.
+
+Started on the user's "devam et" after P0 acceptance; baseline `023d736`. Real-database/token checks and independent R1/R2 security review passed; M accepted the local slice. Publication and hosted verification are pending; see the [execution record](#p1-execution-record).
+
+#### P1 endpoint/action matrix
+
+All business routes require a signature/issuer/audience/expiry/subject-validated bearer token and a current active database membership. Company scope never comes from a body, header or caller-selected company. A revoked membership/role takes effect on subsequent calls without waiting for JWT expiry. Foreign-company resource lookup returns 404; absent/invalid JWT 401; membership/role denial 403. Unknown business endpoints remain denied or absent, not implemented placeholders.
+
+| Endpoint | Authority / scope |
+| --- | --- |
+| `POST /api/identities/self` | Valid JWT only; idempotently registers **only the caller's** issuer+subject, returns that identity's ID. This authentication bootstrap is the sole membership-free identity operation, not access to company data |
+| `GET /api/auth/config` | Public non-secret issuer/client-ID configuration for the local SPA; no token, account or company data |
+| `GET /api/me` | Any active member; own company, primary department, explicit roles and managed department IDs |
+| `GET /api/departments` | Employee: own department; manager: explicitly assigned departments; finance/admin: own company; union of held scopes |
+| `POST /api/admin/departments` | Company administrator; creates only in the actor's validated company |
+| `GET /api/admin/memberships` | Company administrator; own-company members only, no global identity directory |
+| `POST /api/admin/memberships` | Company administrator; links a previously self-registered identity to an own-company department and explicit roles. Another active company membership yields a generic conflict |
+| `PUT /api/admin/memberships/{id}` | Company administrator; own-company target, version checked; update department/active status/roles/manager assignments, preserve at least one active company administrator |
+| `GET /api/budgets?month=YYYY-MM` | Manager: assigned departments; finance/admin: own company; employee alone denied |
+| `PUT /api/admin/departments/{id}/budgets/{month}` | Company administrator; own-company department, nonnegative EUR limit with at most two decimals, never below usage; no client-supplied usage |
+
+No arbitrary identity/company creation or password administration is added to the business API. Keycloak remains the account/password owner. Request/history/notification endpoints and their matrices are extended in P2–P4, not claimed by P1.
 
 - P1.1: local Keycloak realm/public SPA client, strict redirect/CORS configuration, resource-server JWT validation and issuer/audience rules. Use real OIDC for at least one integration journey.
 - P1.2: identities keyed by issuer + subject; one active company membership per user in this release, scoped roles and manager-department assignments. Freeze the endpoint/action role matrix.
@@ -293,3 +314,23 @@ On 2026-10-17, after read-only checks confirmed no local remote or T3 repository
 - Final M acceptance: P0.1–P0.4 and the P0 exit gate are satisfied for the reviewed/tested executable revision `57d4362`. This follow-up changes only README/PLAN/DECISIONS evidence and the low-severity wording correction; no application/configuration code changed, so broad suites are not rerun. The documentation-only commit uses `[skip ci]` and cites the actually tested revision rather than claiming that a new application revision was tested. The next development phase is P1; deployment and additional-spend gates remain closed.
 
 Keep future progress entries concise and link to real reports/diffs rather than duplicating phase descriptions.
+
+### P1 execution record
+
+Main-agent work based on `023d736`, initially uncommitted. Implemented JWT signature/issuer/audience/expiry/subject/type validation; live database membership/role resolution; explicit endpoint matrix, company-scoped directory/admin/budget services, shared authorization lock/exclusive membership edits, constrained V2 schema, separate database credentials and append-only application audit permissions. `local-demo` fixtures create two companies/eight distinct actors only under the explicit demo profile and do not restore revoked assignments on restart. No purchase transition, approval or notification behavior is claimed.
+
+Observed checks: Java 21 `./mvnw --batch-mode verify dependency:tree -DoutputType=json -DoutputFile=target/dependency-tree.json` passed 3 HTTP slice tests, 2 migration/OpenAPI integration tests and 26 identity/database/token cases (31 total), with zero failures/errors/skips, including concurrent administrator revocation and lock-timeout/audit-actor checks. Token negatives use real ephemeral RSA/JWKS decoding, not a mocked authentication principal. A deliberately denied audit insert returns 500 and rolls back the department write; its expected server stack trace is not a failing test. `npm install`, type checks, 14 Vitest component/service/interceptor tests and production build passed; `npm audit --audit-level=high` reported no vulnerabilities. OSV `/v1/querybatch` checked 162 distinct resolved Maven coordinates/versions with no reported findings (`target/p1-osv-report.json`); this is a point-in-time package query, not exhaustive security or image scanning. Reports remain normal generated test/build output. Independent security review and P1 hosted verification remain open.
+
+Source collection: T3 task `node:delegated-task:command%3Amcp%3Ae639658d-6369-43d8-bec0-7c5ca200a490%3Adelegate-task%3Aprocureflow-p1-keycloak-glm-20261017-r1`, provider `opencode`, `opencode-go/glm-5.3-flash`, requested variant `high`, read-only. M independently fetched the official 26.8.1 release, npm adapter metadata and Quay manifest metadata. Keycloak is pinned to `26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244`, adapter to 26.2.4. The manifest digest is an immutable content pin, not a verified cryptographic publisher signature. Research did not execute login or establish runtime compatibility; the real-provider probe must do that.
+
+Real-provider integration: `python3 scripts/check-foundation.py` passed in disposable project `procureflow-check-e75f15864b04` on 2026-10-18 local time. Four images built from pinned bases; all five services healthy; readiness, proxied system/OpenAPI, static routing, Java/nginx checks and real Keycloak Code+S256 journey passed. The journey rejects a wrong verifier and code replay, resolves two companies from real JWTs, denies employee administration, refreshes a usable token, applies membership revocation to an unexpired token, logs out and rejects subsequent refresh. Report: `target/foundation-smoke.json`; normal process output is the command evidence. Test-owned containers/volume/network were removed. This is a protocol/HTTP-form integration journey, not a rendered Angular browser test or future purchase/notification acceptance.
+
+Resolved integration failures: desktop file sharing reported an executable initialization hook despite mode 0644 and denied its interpreter. A PostgreSQL-derived image now copies the same hook with explicit 0644, retaining the exact upstream digest. Python CookieJar did not send Secure cookies over trustworthy localhost HTTP as browsers do; the test-only cookie policy permits that solely for localhost/127.0.0.1. Code-replay testing invalidates that Keycloak session, so its disposable negative session is separate from the refresh/logout session. None of these fixes enables password grants, relaxes production cookie policy or changes application authorization.
+
+Independent Sol review R1: task `node:delegated-task:command%3Amcp%3A186955a6-0667-4c6e-a966-30a625a28ade%3Adelegate-task%3Aprocureflow-p1-sol-security-20261018-r1`; [report](t3-thread://v1/thread:delegated-task:command%3Amcp%3A186955a6-0667-4c6e-a966-30a625a28ade%3Adelegate-task%3Aprocureflow-p1-sol-security-20261018-r1), provider `opencode`, model `openai/gpt-6.1-sol`, requested/saved variant `high` (configuration, not provider-side execution attestation). Reviewer found no verified material implementation defect, but one **medium evidence gap**: service rejection alone did not prove the database budget CHECK rejects direct invalid writes. M verified the 67-file source/config manifest SHA-256 `25f30478cc3a206e224cb0c410c409ba849d9a966f6542c31e2ae5fc0e4b2db1`, read the relevant schema/tests and accepted that finding. Added direct runtime-role SQL attempts for below-usage limits and negative usage, asserting SQLSTATE `23514` and unchanged persisted values. Only `IdentityAccessIT.java` changed in the executable snapshot; application/infra/frontend source is unchanged. Closure requires the targeted rerun and independent R2 review. Reviewer inspected existing backend/Compose reports without executing tests/builds/containers or modifying files.
+
+Corrective-test evidence: Java 21 `./mvnw --batch-mode -pl backend/app -am verify -Dit.test=IdentityAccessIT -Dfailsafe.failIfNoSpecifiedTests=false` passed 3 HTTP tests and all 28 identity/security cases, including both direct SQL failures and unchanged amounts; zero failures/errors/skips. The flag permits parent/library modules with no matching tests; the app's 28 cases actually executed. The initial invocation without that flag stopped at the parent before testing. Full migration/OpenAPI tests and the provider/frontend suites were not rerun for this test-only addition. The final 67-file manifest is `8d657d6a9abab0da565d199fdb8914e3e75365b261fbcda6b7b4474276de8028`, generated in ignored `target/p1-r2-manifest.txt`; M's comparison against R1 confirmed only the expected test file changed. The R2 closure is recorded below.
+
+Independent Sol closure R2: task `node:delegated-task:command%3Amcp%3A186955a6-0667-4c6e-a966-30a625a28ade%3Adelegate-task%3Aprocureflow-p1-sol-security-20261018-r2`; [report](t3-thread://v1/thread:delegated-task:command%3Amcp%3A186955a6-0667-4c6e-a966-30a625a28ade%3Adelegate-task%3Aprocureflow-p1-sol-security-20261018-r2), provider `opencode`, model `openai/gpt-6.1-sol`, requested/saved variant `high` (not provider-side attestation). Reviewer verified the final 67-file manifest, sole test-file delta, staging equivalence and real execution of both added SQL cases in the XML report. R1's medium evidence gap is closed; no new finding or unresolved objection. No tests/builds/containers or writes were performed by the reviewer.
+
+M's local acceptance: read both reports and corrective test diff, checked real outputs and final hashes, and accepted the P1 local slice. P1.1–P1.4 and the scoped AC-SEC/AC-DB gate pass; this does not accept future purchase, final-approval, notification or rendered-browser journeys. Main-owned documentation follow-ups only record evidence/status. The public repository/normal push authorization remains the user's explicit 2026-10-17 grant. Staged inventory contains 45 expected source/config/test/document files, no local environments, generated reports, dependencies or credentials; redacted Gitleaks staged scan found no leaks. Publication and hosted P1 verification remain pending.

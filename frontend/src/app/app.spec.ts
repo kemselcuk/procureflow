@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { App } from './app';
+import { signal } from '@angular/core';
+import { Authentication } from './authentication';
 
 describe('Foundation connection boundary', () => {
   let http: HttpTestingController;
@@ -9,7 +11,9 @@ describe('Foundation connection boundary', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), {
+        provide: Authentication, useValue: { initialize: async () => {}, state: signal('anonymous'), member: signal(null) },
+      }],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -20,14 +24,14 @@ describe('Foundation connection boundary', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
-    expect(element.querySelector('button')?.disabled).toBe(true);
+    expect(element.querySelector('.connection button')?.hasAttribute('disabled')).toBe(true);
     const request = http.expectOne('/api/system');
     expect(request.request.method).toBe('GET');
     request.flush({ name: 'ProcureFlow', stage: 'foundation' });
     await fixture.whenStable();
     expect(element.textContent).toContain('Foundation API connected');
     expect(element.textContent).toContain('not purchase-feature readiness');
-    expect(element.querySelector('button')?.disabled).toBe(false);
+    expect(element.querySelector('.connection button')?.hasAttribute('disabled')).toBe(false);
   });
 
   it('keeps an API failure recoverable through the visible retry action', async () => {
@@ -37,7 +41,7 @@ describe('Foundation connection boundary', () => {
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.textContent).toContain('API is unavailable');
-    element.querySelector('button')?.click();
+    (element.querySelector('.connection button') as HTMLButtonElement).click();
     http.expectOne('/api/system').flush({ name: 'ProcureFlow', stage: 'foundation' });
     await fixture.whenStable();
     expect(element.textContent).toContain('Foundation API connected');

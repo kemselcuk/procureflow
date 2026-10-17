@@ -5,10 +5,11 @@ spring:
     exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/procureflow}
-    username: ${DB_USERNAME:procureflow}
+    username: ${DB_USERNAME:procureflow_app}
     password: ${DB_PASSWORD}
     hikari:
       connection-timeout: 5000
+      connection-init-sql: "SET lock_timeout = '5s'; SET statement_timeout = '15s'"
   jpa:
     open-in-view: false
     hibernate:
@@ -17,9 +18,14 @@ spring:
       hibernate.jdbc.time_zone: UTC
   flyway:
     clean-disabled: true
+    user: ${MIGRATION_DB_USERNAME:procureflow_migrator}
+    password: ${MIGRATION_DB_PASSWORD}
   threads:
     virtual:
       enabled: true
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
 server:
   shutdown: graceful
 management:
@@ -37,3 +43,9 @@ management:
           include: readinessState,db
 springdoc:
   paths-to-match: /api/**
+app:
+  security:
+    issuer: ${OIDC_ISSUER:http://localhost:8180/realms/procureflow}
+    jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:8180/realms/procureflow/protocol/openid-connect/certs}
+    audience: procureflow-api
+    allowed-origins: ${FRONTEND_ORIGINS:http://localhost:4200,http://127.0.0.1:4200}

@@ -1,5 +1,7 @@
 package com.procureflow.app;
 
+import com.procureflow.app.support.TestDatabase;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -27,14 +29,11 @@ import static org.assertj.core.api.Assertions.*;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class FoundationIT {
     @Container
-    static final PostgreSQLContainer DATABASE = new PostgreSQLContainer(
-            DockerImageName.parse(System.getProperty("postgres.image")));
+    static final PostgreSQLContainer DATABASE = TestDatabase.create();
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry properties) {
-        properties.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        properties.add("spring.datasource.username", DATABASE::getUsername);
-        properties.add("spring.datasource.password", DATABASE::getPassword);
+        TestDatabase.properties(DATABASE, properties);
     }
 
     @LocalServerPort
@@ -46,7 +45,7 @@ class FoundationIT {
     @Test
     void migratesEmptyPostgresAndRejectsInvalidCompanyRecords() throws Exception {
         assertThat(Runtime.version().feature()).isEqualTo(21);
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (var connection = DriverManager.getConnection(DATABASE.getJdbcUrl(), DATABASE.getUsername(), DATABASE.getPassword());

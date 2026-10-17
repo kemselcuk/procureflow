@@ -35,6 +35,6 @@ class FoundationHttpBoundaryTest {
 
     @Test
     void publicMetadataDoesNotAllowWrites() throws Exception {
-        mvc.perform(post("/api/system")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/system")).andExpect(status().isUnauthorized());
     }
 }
