@@ -1,0 +1,74 @@
+name: procureflow
+
+services:
+  postgres:
+    image: postgres:18.6-bookworm@sha256:afc7e2d441324c0388fa80c3d24f733b4194a4eb7f47dd8ee2b08eb1a24a647c
+    environment:
+      POSTGRES_DB: procureflow
+      POSTGRES_USER: procureflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local development}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18 stores versioned data below /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U procureflow -d procureflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: procureflow-app:0.1.0-p0
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        MODULE: app
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/procureflow
+      DB_USERNAME: procureflow
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for local development}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  frontend:
+    image: procureflow-frontend:0.1.0-p0
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-4200}:8080"
+    depends_on:
+      app:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  # Process/health scaffold only; notification consumption is implemented in P4.
+  notification-worker:
+    image: procureflow-notification-worker:0.1.0-p0
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        MODULE: notification-worker
+    environment:
+      SERVER_PORT: 8081
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  postgres-data:

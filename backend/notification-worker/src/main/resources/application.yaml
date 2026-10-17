@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: procureflow-notification-worker
+server:
+  port: 8081
+  shutdown: graceful
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true

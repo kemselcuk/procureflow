@@ -1,0 +1,45 @@
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="header">
+  <a class="brand" href="/" aria-label="ProcureFlow home"><span class="mark" aria-hidden="true">P</span> ProcureFlow</a>
+  <span class="environment">LOCAL DEVELOPMENT</span>
+</header>
+
+<main id="main">
+  <section class="intro" aria-labelledby="title">
+    <p class="eyebrow">PURCHASE REQUESTS · APPROVALS · ACCOUNTABILITY</p>
+    <h1 id="title">Every request.<br>A clear path forward.</h1>
+    <p class="lede">A workspace for responsible purchasing, from the first request to the final approval.</p>
+    <div class="notice"><strong>Foundation preview</strong><span>We are building the essentials. Login, purchase requests and approvals are not available yet.</span></div>
+  </section>
+
+  <section class="connection" aria-labelledby="connection-title">
+    <div>
+      <p class="eyebrow">DEVELOPMENT CHECK</p>
+      <h2 id="connection-title">Application connection</h2>
+    </div>
+    <div class="connection-detail" role="status" aria-live="polite" aria-atomic="true">
+      @switch (connection().kind) {
+        @case ('loading') { <p class="status">Connecting to the API…</p> }
+        @case ('ready') {
+          <p class="status ready"><span class="dot" aria-hidden="true"></span>Foundation API connected</p>
+          <p class="hint">This checks connectivity, not purchase-feature readiness.</p>
+        }
+        @case ('error') {
+          <p class="status">The foundation API is unavailable.</p>
+          <p class="hint">Start the local backend, then try again.</p>
+        }
+      }
+    </div>
+    <button type="button" (click)="loadStatus()" [disabled]="connection().kind === 'loading'">Check connection</button>
+  </section>
+
+  <section class="roadmap" aria-labelledby="roadmap-title">
+    <div class="section-heading"><h2 id="roadmap-title">What comes next</h2><span>PLANNED FEATURES</span></div>
+    <div class="cards">
+      <article><span class="step">01 / REQUEST</span><h3>Start with the details</h3><p>Create a purchase request with an amount and a clear justification.</p></article>
+      <article><span class="step">02 / REVIEW</span><h3>The right people, in order</h3><p>Department review first. A separate finance approver for amounts over €1,000.</p></article>
+      <article><span class="step">03 / TRACE</span><h3>Decisions with a history</h3><p>Follow the approval timeline and the final approval month's budget usage.</p></article>
+    </div>
+  </section>
+  <footer>Fictional budgets. No real payments. <a href="/v3/api-docs">OpenAPI specification</a></footer>
+</main>

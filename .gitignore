@@ -1,0 +1,16 @@
+.DS_Store
+.idea/
+.vscode/
+*.iml
+**/target/
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/coverage/
+.env
+.env.*
+!.env.example
+*.log
+.mvn/wrapper/maven-wrapper.jar
+**/__pycache__/
+*.pyc

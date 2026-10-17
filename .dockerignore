@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+**/target
+**/node_modules
+**/.angular
+**/dist
+**/coverage
+*.log
+.mvn/wrapper/maven-wrapper.jar
