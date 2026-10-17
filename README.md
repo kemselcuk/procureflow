@@ -4,7 +4,7 @@
 
 ProcureFlow is a corporate purchase-request and approval application under development. It is a Java/Spring backend portfolio project with a planned complete Angular interface, intended to make engineering decisions understandable and verifiable in interviews.
 
-**Current status: P0 accepted; P1 identity/company isolation accepted locally after independent review.** P1's database/token tests, real-provider protocol check and R1/R2 reviews passed; P1 publication/hosted verification is pending. The [P0 run](https://github.com/kemselcuk/procureflow/actions/runs/39049180018) applies to revision `57d4362`, not P1. Purchase requests and approvals remain planned; see the [plan](docs/PLAN.md#p1-execution-record).
+**Current status: P0 and P1 accepted after independent review and passing hosted CI.** [Verified P1 run](https://github.com/kemselcuk/procureflow/actions/runs/39074281305), executable revision `92688d5`: 33 backend tests, 14 Angular tests and the real Keycloak protocol journey passed. Purchase requests and approvals remain planned; see the [evidence and limitations](docs/PLAN.md#p1-execution-record).
 
 ## Project documents
 
@@ -32,21 +32,21 @@ The application will include company isolation, role-based authorization, reques
 
 ## Technology to purpose to evidence
 
-Status is deliberately scoped: foundation checks do not prove the future product's tenant isolation, budget concurrency or notification recovery. Observed runs and limitations are recorded in the [P0 evidence](docs/PLAN.md#p0-execution-evidence). No performance, coverage or reliability result is claimed.
+Status is deliberately scoped: the identity/company boundary is tested for P1 endpoints, not future purchase/history/notification routes. Final-approval concurrency and notification recovery follow in P3/P4. Observed runs and limitations are recorded in the [P0](docs/PLAN.md#p0-execution-evidence) and [P1 evidence](docs/PLAN.md#p1-execution-record). No performance, coverage or reliability result is claimed.
 
 | Technology | Intended purpose | Code / configuration | Evidence / remaining gate |
 | --- | --- | --- | --- |
 | Java 21, Spring Boot, Maven | Modular monolith and separate notification worker | [Build](pom.xml), [app](backend/app), [worker](backend/notification-worker) | Java 21.0.12.1 builds and real-PostgreSQL security/migration checks passed; purchase transaction boundaries follow in P2/P3 |
 | Spring Security, Keycloak/OIDC | Login, validated JWTs and company-scoped permissions | [Identity](backend/app/src/main/java/com/procureflow/app/identity), [realm](infra/keycloak/procureflow-realm.json), [adapter boundary](frontend/src/app/authentication.ts) | [Security tests](backend/app/src/test/java/com/procureflow/app/IdentityAccessIT.java), [real-provider probe](scripts/oidc_smoke.py) and independent R1/R2 reviews passed; [P1 evidence](docs/PLAN.md#p1-execution-record) |
 | JPA/Hibernate, PostgreSQL | Persistence, tenant relationships and concurrency control | [Budget mappings](backend/app/src/main/java/com/procureflow/app/budgets), [access queries](backend/app/src/main/java/com/procureflow/app/identity/ActorAccess.java) | Real PostgreSQL 18.6 checks cover composite tenant FKs, current membership, authorization locking and budget-limit constraints; final-approval concurrency follows in P3 |
-| Flyway | Reproducible schema and constraints | [Migration](backend/app/src/main/resources/db/migration/V1__create_company.sql), [integration test](backend/app/src/test/java/com/procureflow/app/FoundationIT.java) | Empty-database migration, validation and no-op remigration passed; upgrade tests follow later migrations |
+| Flyway | Reproducible schema and constraints | [Migrations](backend/app/src/main/resources/db/migration), [integration test](backend/app/src/test/java/com/procureflow/app/FoundationIT.java) | Empty-database V1/V2 migration, validation, no-op remigration and tenant/budget constraints passed; existing-product upgrade checks follow later phases |
 | Angular/TypeScript | Complete product UI (planned) | [Foundation/login page](frontend/src/app), [authentication tests](frontend/src/app/authentication.spec.ts) | Type checks, 14 component/service/interceptor tests and production build passed locally; real-browser product journeys remain planned |
 | RabbitMQ, transactional outbox | Publish committed events and recover notification processing after interruptions | Outbox relay, event contracts, notification worker | Broker outage, redelivery and stopped-worker recovery tests |
 | Mailpit | Inspect locally delivered demo email | Local development services | Expected messages visible after worker recovery; SMTP limitations documented |
-| JUnit, Mockito, Testcontainers | Verify behavior at its real boundary | [HTTP boundary](backend/app/src/test/java/com/procureflow/app/system/FoundationHttpBoundaryTest.java), [PostgreSQL/OpenAPI](backend/app/src/test/java/com/procureflow/app/FoundationIT.java) | Foundation tests passed; purchase acceptance scenarios remain pending |
+| JUnit, Mockito, Testcontainers | Verify behavior at its real boundary | [HTTP](backend/app/src/test/java/com/procureflow/app/system/FoundationHttpBoundaryTest.java), [migrations/OpenAPI](backend/app/src/test/java/com/procureflow/app/FoundationIT.java), [security/database](backend/app/src/test/java/com/procureflow/app/IdentityAccessIT.java) | 33 backend tests passed locally in scoped runs and together on hosted CI; purchase acceptance scenarios remain pending |
 | Playwright | Browser-level checks of critical user journeys | `e2e/` | Login, submission, approval, denial and notification reports |
 | Docker Compose | Reproduce the local foundation, later the complete product | [Compose](compose.yaml), [smoke check](scripts/check-foundation.py) | All 5 P1 services became healthy locally; API/OpenAPI/proxy/static, Code+PKCE/refresh/logout/revocation and isolated cleanup passed; not a complete-product claim |
-| GitHub Actions | Repeat foundation checks; browser checks follow in P6 | [Workflow](.github/workflows/ci.yaml) | [Passing hosted run](https://github.com/kemselcuk/procureflow/actions/runs/39049180018): backend, frontend and isolated container jobs; revision `57d4362` |
+| GitHub Actions | Repeat foundation/identity checks; browser checks follow in P6 | [Workflow](.github/workflows/ci.yaml) | [Passing P1 run](https://github.com/kemselcuk/procureflow/actions/runs/39074281305): backend, frontend and isolated container/OIDC jobs; executable revision `92688d5` |
 | Terraform, when a provider is chosen | Describe a future cloud environment | Provider-specific infrastructure, deferred | Formatting/validation evidence first; an actual deployment is a separate action |
 
 ## Local setup and checks
@@ -105,7 +105,7 @@ The release evidence will cover three required scenarios:
 2. Users cannot read or change another company's data or perform actions outside their role and department.
 3. Notifications committed while the worker is stopped are completed after it restarts. Duplicate event delivery is safe for database effects; email delivery has the limitations recorded in the decision log.
 
-Sample data will contain two companies, multiple departments, distinct role holders and requests around the approval threshold. Demo fixtures will be explicitly enabled for local use.
+The explicit local-demo profile currently contains two companies, multiple departments and distinct role holders. Request fixtures around the approval threshold follow in the request/approval phases.
 
 Product architecture/transaction diagrams follow the real implementation during delivery. A demo video is not a deliverable.
 
