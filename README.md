@@ -4,7 +4,7 @@
 
 ProcureFlow is a corporate purchase-request and approval application under development. It is a Java/Spring backend portfolio project with a planned complete Angular interface, intended to make engineering decisions understandable and verifiable in interviews.
 
-**Current status: local P0 foundation checked and independently reviewed; hosted CI verification pending.** The main agent accepted the local foundation slice, not the full P0 phase. Execution evidence and remaining gates are recorded in the [plan](docs/PLAN.md#p0-execution-evidence). Product features remain planned until their acceptance checks pass.
+**Current status: P0 foundation accepted after independent review and passing GitHub CI.** [Verified run](https://github.com/kemselcuk/procureflow/actions/runs/39049180018) on revision `57d4362`; P1 identity/company isolation has not started. Execution evidence is recorded in the [plan](docs/PLAN.md#p0-execution-evidence). Product features remain planned until their acceptance checks pass.
 
 ## Project documents
 
@@ -20,7 +20,7 @@ Each subject has one authoritative document. This README is the entry point for 
 - Public `GET /api/system`, OpenAPI JSON and health endpoints; other app routes deny by default. **There is no user login or business API yet.**
 - PostgreSQL tenant-root migration managed by Flyway, validated by JPA; no demo data is automatically inserted.
 - Standalone Angular foundation page with real API connectivity, loading/failure/retry states and component tests.
-- Pinned multi-stage containers and a locally checked Compose stack; a least-permission CI workflow is configured, with hosted verification still pending.
+- Pinned multi-stage containers and Compose, checked locally and on standard Ubuntu GitHub runners; a least-permission CI workflow repeats the foundation checks without deployment or paid storage.
 
 ## Intended product
 
@@ -46,12 +46,12 @@ Status is deliberately scoped: foundation checks do not prove the future product
 | JUnit, Mockito, Testcontainers | Verify behavior at its real boundary | [HTTP boundary](backend/app/src/test/java/com/procureflow/app/system/FoundationHttpBoundaryTest.java), [PostgreSQL/OpenAPI](backend/app/src/test/java/com/procureflow/app/FoundationIT.java) | Foundation tests passed; purchase acceptance scenarios remain pending |
 | Playwright | Browser-level checks of critical user journeys | `e2e/` | Login, submission, approval, denial and notification reports |
 | Docker Compose | Reproduce the local foundation, later the complete product | [Compose](compose.yaml), [smoke check](scripts/check-foundation.py) | All 4 foundation services became healthy; API/OpenAPI/proxy/static checks and isolated cleanup passed; not a fresh-machine or complete-product claim |
-| GitHub Actions | Repeat foundation checks; browser checks follow in P6 | [Workflow](.github/workflows/ci.yaml) | actionlint passed locally; first hosted execution pending on the public repository |
+| GitHub Actions | Repeat foundation checks; browser checks follow in P6 | [Workflow](.github/workflows/ci.yaml) | [Passing hosted run](https://github.com/kemselcuk/procureflow/actions/runs/39049180018): backend, frontend and isolated container jobs; revision `57d4362` |
 | Terraform, when a provider is chosen | Describe a future cloud environment | Provider-specific infrastructure, deferred | Formatting/validation evidence first; an actual deployment is a separate action |
 
 ## Local setup and checks
 
-Prerequisites: a running Docker engine with Compose for containers/integration tests; a maintained JDK 21 and compatible Node 22 for host development; npm 10 and Python 3 for the smoke-check script. Checked locally on macOS arm64/Docker Desktop; Linux CI execution is still unverified. Check Docker Desktop's applicable licensing for your use. No paid/cloud service is needed.
+Prerequisites: a running Docker engine with Compose for containers/integration tests; a maintained JDK 21 and compatible Node 22 for host development; npm 10 and Python 3 for the smoke-check script. Checked locally on macOS arm64/Docker Desktop and on standard Ubuntu 24.04 GitHub runners. Check Docker Desktop's applicable licensing for your use. No paid/cloud service is needed.
 
 Select JDK 21 explicitly before running Maven. On macOS, after installing a maintained JDK 21:
 
