@@ -10,7 +10,6 @@ ProcureFlow is a corporate purchase-request and approval application under devel
 
 - [Implementation plan and progress](docs/PLAN.md): scope, task owners, dependencies, acceptance criteria, estimates, risks and current progress.
 - [Decision record](docs/DECISIONS.md): architectural reasoning, version research and important trade-offs.
-- [Agent working agreement](AGENTS.md): permissions, delegation, file ownership, review and evidence rules.
 
 Each subject has one authoritative document. This README is the entry point for running and evaluating the implemented foundation.
 
@@ -28,7 +27,7 @@ Employees submit purchase requests. Department managers approve requests within 
 
 All company and department budgets are fictional application data. Approvals update database records and never initiate payments. The real infrastructure spending limit is documented separately in the [plan](docs/PLAN.md#cost-and-cloud-boundary).
 
-The application will include company isolation, role-based authorization, request history, a budget overview, an approval inbox and notifications. The English interface will use a simple corporate design. Engineering explanations and learning discussions with the user remain in Turkish.
+The application will include company isolation, role-based authorization, request history, a budget overview, an approval inbox and notifications. The English interface will use a simple corporate design.
 
 ## Technology to purpose to evidence
 

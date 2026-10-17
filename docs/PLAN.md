@@ -2,7 +2,7 @@
 
 Status: **P0 and P1 accepted after independent review and hosted verification; P2–P7 pending**.
 
-Prepared: 2026-10-17. Owner: main agent. This file is the single task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md); execution rules belong in [AGENTS.md](../AGENTS.md).
+Prepared: 2026-10-17. This file is the task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md).
 
 ## Approval boundaries
 
@@ -72,29 +72,16 @@ These are future paths; this plan does not create the application tree.
 - `frontend/`: Angular application. Authentication uses the framework-independent Keycloak JavaScript adapter, Authorization Code + PKCE, and in-memory tokens.
 - `e2e/`: critical Playwright journeys against the actual local application. Infrastructure failure tests remain backend/system tests rather than fragile browser timing tests.
 - Local infrastructure: PostgreSQL, Keycloak, RabbitMQ and Mailpit plus application/worker/frontend containers. Keycloak gets its own database credentials/database; application schema changes use Flyway.
-- Main agent owns shared build/configuration, SQL migrations, event/API contracts, Compose, CI and central documents. Writing subagents receive bounded feature/test paths only after contracts are agreed.
 
 The [decision log](DECISIONS.md) specifies tenant boundaries, lock order, outbox recovery, SMTP limitations and the researched version baseline. PostgreSQL remains the source of truth; the API can serve purchase operations while RabbitMQ or the notification worker is unavailable.
 
-## Owners and collaboration
+## Implementation and verification
 
-| Owner | Responsibility | Model / access |
-| --- | --- | --- |
-| User | Product decisions; approval of the detailed plan and implementation start; future cloud/spending decision | Human |
-| M — main agent | Architecture, shared contracts/files, main implementation, integration and final technical acceptance | `gpt-6.1-sol` |
-| S — bounded specialist | Substantial independent implementation or test design when delegation helps | `gpt-6.1-sol` |
-| D — routine specialist | Routine work and simple coding tasks with agreed contracts, including source collection, fixtures, components/tests or documentation checks | Existing OpenCode Go: `opencode-go/deepseek-v4.1-flash` or `opencode-go/glm-5.3-flash`, chosen as needed |
-| R — independent reviewer | Review requirements, changed revision, tests and unresolved risks; owns no files | Separate `gpt-6.1-sol` context, not the change's author |
-
-S, D and R are task roles using **at most two child-agent slots**, not three permanently running agents. No nested delegation. Separate worktrees for writers; read-only reviewers can inspect the main checkout. New worktrees cannot receive uncommitted planning changes, so a user-authorized committed baseline is a prerequisite. The main agent can implement sequentially until that prerequisite is met.
-
-A task is accepted only after M has inspected its diff/output and actual evidence, resolved material findings and checked integration. Review status and evidence stay in this file. Small tasks do not justify a new agent.
-
-Delegation transport, model-option selection and task boundaries are owned by the [working agreement](../AGENTS.md#responsibility-and-delegation). The routing-policy update did not itself open the development gate; the later explicit implementation request did.
+Historical evidence identifies the primary implementer as M, bounded contributors as S/D, and the independent reviewer as R. Acceptance requires source/diff inspection, actual command evidence, resolution of material findings, and integration checks. Review outcomes remain in this file; personal workflow and learning preferences are not part of the public project documentation.
 
 ## Phases, dependencies and acceptance
 
-P0 and P1 are complete; P2–P7 are pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. The user can spend more than 10 hours weekly; actual sequencing will adapt to the observed pace, especially Angular learning. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
+P0 and P1 are complete; P2–P7 are pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
 
 ### P0 — Reproducible foundation and compatibility gate
 
@@ -181,7 +168,7 @@ Depends on: P2 API contract; can start alongside P3/P4 after P1 login is stable.
 - P5.1: Keycloak login/logout, in-memory token lifecycle, safe API interceptor and route guards. Backend authorization remains authoritative.
 - P5.2: own request list/form/detail/timeline and approval inbox, including denied/stale/insufficient-budget responses and prevention of accidental repeat submission.
 - P5.3: budget/admin screens and in-app notifications. Display the fictional budget's charging month and the two-step rule clearly.
-- P5.4: meaningful component tests for form/errors/role visibility, plus keyboard and narrow-layout checks. Explain typed forms, component boundaries, services, asynchronous data and state choices to the user in Turkish.
+- P5.4: meaningful component tests for form/errors/role visibility, plus keyboard and narrow-layout checks.
 
 Exit: every agreed screen works with the real API; errors preserve user input where appropriate; loading/empty/forbidden states are usable. The user can explain one form, one HTTP/auth interaction and one state-management choice.
 
@@ -201,7 +188,7 @@ Exit: all acceptance cases below pass for one reviewed revision; CI evidence is 
 Depends on: P6. Owner: M; R validates README claims against actual files/reports. Estimate: 6–10 hours.
 
 - P7.1: verify documented local setup from a fresh checkout; record prerequisites, URLs, demo identities, reset instructions and known limitations. Keep destructive local resets explicitly labelled.
-- P7.2: replace the README's planned evidence cells with real links and commands; add architecture and transaction/message-flow diagrams. Explain trade-offs in the decision log and include short interview exercises.
+- P7.2: replace the README's planned evidence cells with real links and commands; add architecture and transaction/message-flow diagrams. Explain trade-offs in the decision log.
 - P7.3: stateless application configuration, external secrets, persistent volumes, health/readiness, shutdown/retry behavior and environment-specific OIDC/proxy URLs. Verify same-site frontend/API routing where possible and document TLS/backup requirements for a future public environment.
 - P7.4: prepare the cloud decision/deployment checklist within existing documents. Provider-specific Terraform, validation and actual provisioning are deferred until the user selects a target; no placeholder Terraform is presented as validated infrastructure.
 
@@ -209,7 +196,7 @@ Exit: local product and evidence index are honest and reproducible; no required 
 
 ## Critical path and parallel work
 
-P0 → P1 → P2 → P3 → P4 → P6 → P7 is the backend/reliability path. P5 branches from P2 and rejoins at P6; its final notification/budget UI waits for P3/P4 behavior. UI and worker work can run in two independent writing tasks only after their contracts and path ownership are fixed. Shared migrations/contracts/build files remain sequential main-agent work. Independent review uses an available slot and must finish before the affected phase exits.
+P0 → P1 → P2 → P3 → P4 → P6 → P7 is the backend/reliability path. P5 branches from P2 and rejoins at P6; its final notification/budget UI waits for P3/P4 behavior. UI and worker implementation depend on stable API/event contracts. Independent technical review must finish before the affected phase exits.
 
 ## Acceptance catalog
 
@@ -235,7 +222,7 @@ The 60-second recovery bound is a proposed acceptance deadline under a small loc
 
 For each material task, record: task ID, owner/model, reviewed revision/diff, relevant decisions, executed commands, observed output/report location, findings/fixes, remaining limitations and M's acceptance. CI run URLs and report files become README evidence only after they exist. Normal generated build/test reports need no additional hand-written Markdown documents.
 
-A phase is complete when its exit conditions pass and M accepts the integration. A model's final message is insufficient. At a meaningful checkpoint, explain the decision and alternative in Turkish and give the user a short interview question or exercise. No percentage coverage, latency, availability or hiring outcome is promised.
+A phase is complete when its exit conditions pass and M accepts the integration. A model's final message is insufficient. No percentage coverage, latency, availability or hiring outcome is promised.
 
 ## Cost and cloud boundary
 
@@ -258,8 +245,7 @@ A phase is complete when its exit conditions pass and M accepts the integration.
 | Terraform executable absent | No Terraform installation now; future provider work includes selecting/installing a suitable version with user-authorized setup |
 | GitHub publication and access | Public `kemselcuk/procureflow` created with explicit user approval; origin push/fetch and standard free Linux CI verified. No paid storage, branch-policy guarantees or cloud deployment are claimed; T3 metadata refresh remains a UI/app limitation |
 | SMTP cannot make a generic database transaction atomic with external acceptance | Durable jobs/retry plus truthful duplicate-window documentation; no end-to-end exactly-once promise |
-| Two isolated writers need a committed baseline and disciplined shared-file ownership | M coordinates the baseline and contracts; work sequentially if prerequisites are absent |
-| Portfolio scope or Angular learning takes longer than estimated | Prefer the agreed core; adjust estimates from observed work and ask before expanding product scope |
+| Product scope takes longer than estimated | Prefer the agreed core and adjust estimates from observed work before expanding scope |
 
 ## Progress and review record
 
@@ -268,8 +254,6 @@ A phase is complete when its exit conditions pass and M accepts the integration.
 | 2026-10-17 | Discovery choices and approach | Accepted in conversation; video removed; real cloud deferred; model/service extra spending EUR 0 |
 | 2026-10-17 | Repository and local tools inspected | Only existing README/icon; clean `main`, initial commit `5e51f26`; Java 21.0.8; Maven 3.9.11 running Java 25; Node 22.23.2; npm 10.9.8; Docker CLI 29.8.1; Compose 5.5.1; Terraform not on PATH. No engine/startup test |
 | 2026-10-17 | Detailed plan and central documents | Initial draft prepared in the previous thread; resumed validation and independent review are recorded below |
-| 2026-10-17 | Delegation policy updated at the user's request | Added GLM-5.3-Flash alongside DeepSeek V4.1 Flash for routine/simple work as needed; all child work routed through T3. Live `orchestrator_capabilities` advertises both exact OpenCode Go model IDs and `low`/`high`/`max` variants on provider `opencode`; catalog evidence only, no model execution or application checks. Implementation remains pending |
-| 2026-10-17 | Delegation-policy document verification | Main agent reviewed the updated sections across AGENTS/PLAN/DECISIONS in the uncommitted working tree based on `5e51f26`. `git diff --no-index --check /dev/null <file>` for each document emitted no whitespace diagnostics; exit 1 reflects file differences. This is a scoped document check, not the pending independent plan review |
 | 2026-10-17 | Planning resumed from the failed thread | Accepted choices and completed DeepSeek source collection recovered from the previous thread. M corrected phase acceptance ordering and finance-route budget fixtures, added the proposed state/access contract, and retained documentation-only authorization |
 | 2026-10-17 | GLM source collection and main-agent validation | T3 task `node:delegated-task:command%3Amcp%3A01d53088-c1e4-455c-b844-b0a6c7305d1b%3Adelegate-task%3Aprocureflow-plan-resume-source-glm-20261017-r1`, provider `opencode`, model `opencode-go/glm-5.3-flash`, requested variant `high`. M independently fetched publisher npm metadata with Python `urllib`, official PostgreSQL/Keycloak/RabbitMQ pages, and Mailpit release metadata with `gh api`; D002 contains accepted facts/URLs. The suggested RxJS 7.4.x pin was not adopted: the peer range permits later 7.x patches. No installation, dependency resolution, container pull or runtime test |
 | 2026-10-17 | Independent Sol planning review R1 | T3 task `node:delegated-task:command%3Amcp%3A01d53088-c1e4-455c-b844-b0a6c7305d1b%3Adelegate-task%3Aprocureflow-plan-sol-review-20261017-r1`; [review report](t3-thread://v1/thread:delegated-task:command%3Amcp%3A01d53088-c1e4-455c-b844-b0a6c7305d1b%3Adelegate-task%3Aprocureflow-plan-sol-review-20261017-r1). Provider `codex`, model `gpt-6.1-sol`, requested reasoning `xhigh`. All four document SHA-256 values matched the reviewed snapshot on base `5e51f26` (full hashes in report). No material findings; no unresolved review objections. M read the report, independently validated material source facts and accepted the planning deliverable. Reviewer did not refetch sources or run application checks |
