@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build/check a disposable local Compose stack, then delete only its own volumes."""
 
+import base64
 import json
 import os
 import re
@@ -24,12 +25,17 @@ def main():
         "APP_DB_PASSWORD": secrets.token_hex(24),
         "MIGRATION_DB_PASSWORD": secrets.token_hex(24),
         "WORKER_DB_PASSWORD": secrets.token_hex(24),
+        "RABBITMQ_PASSWORD": secrets.token_hex(24),
         "KEYCLOAK_DB_PASSWORD": secrets.token_hex(24),
         "KEYCLOAK_ADMIN_PASSWORD": secrets.token_hex(24),
         "DEMO_PASSWORD": secrets.token_hex(24),
         "COMPOSE_PROJECT_NAME": project,
+        # 0 lets Docker assign random loopback host ports for this disposable project.
         "POSTGRES_PORT": "0",
         "APP_PORT": "0",
+        "WORKER_PORT": "0",
+        "RABBITMQ_AMQP_PORT": "0",
+        "RABBITMQ_MANAGEMENT_PORT": "0",
     }
     # Stable URLs are needed before Keycloak imports its exact redirect/issuer configuration.
     with socket.socket() as frontend_port, socket.socket() as oidc_port:
@@ -44,15 +50,29 @@ def main():
             cwd=ROOT, env=environment, check=True,
         )
 
-    def base_url(service):
+    def service_address(service, container_port):
         result = subprocess.run(
-            ["docker", "compose", "-f", str(ROOT / "compose.yaml"), "port", service, "8080"],
+            ["docker", "compose", "-f", str(ROOT / "compose.yaml"), "port", service, str(container_port)],
             cwd=ROOT, env=environment, check=True, capture_output=True, text=True,
         )
         address = result.stdout.strip()
         if not address.startswith("127.0.0.1:") or not address.split(":")[-1].isdigit():
-            raise RuntimeError(f"Unexpected loopback port mapping for {service}")
-        return "http://" + address
+            raise RuntimeError(f"Unexpected loopback port mapping for {service}:{container_port}")
+        return address
+
+    def base_url(service, container_port=8080):
+        return "http://" + service_address(service, container_port)
+
+    def rabbitmq_api(path):
+        credentials = base64.b64encode(
+            f"procureflow:{environment['RABBITMQ_PASSWORD']}".encode()
+        ).decode()
+        request = urllib.request.Request(
+            base_url("rabbitmq", 15672) + "/api/" + path,
+            headers={"Authorization": "Basic " + credentials},
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode())
 
     compose("config", "--quiet")
     results = []
@@ -61,8 +81,10 @@ def main():
         compose("up", "--wait", "--wait-timeout", "240")
         app = base_url("app")
         frontend = base_url("frontend")
+        worker = base_url("notification-worker", 8081)
         checks = [
             (app, "/actuator/health/readiness"),
+            (worker, "/actuator/health/readiness"),
             (frontend, "/api/system"),
             (frontend, "/v3/api-docs"),
             (frontend, "/"),
@@ -84,6 +106,32 @@ def main():
                     raise RuntimeError(f"Unexpected foundation response for {path}")
                 results.append({"url": base + path, "status": response.status})
                 print(f"PASS {base}{path}", flush=True)
+
+        exchange = rabbitmq_api("exchanges/%2F/procureflow.events")
+        queue = rabbitmq_api("queues/%2F/procureflow.notifications")
+        bindings = rabbitmq_api("bindings/%2F/e/procureflow.events/q/procureflow.notifications")
+        topology_valid = (
+            exchange["durable"] and exchange["type"] == "topic" and not exchange["auto_delete"]
+            and queue["durable"] and not queue["auto_delete"] and not queue["exclusive"]
+            and queue["type"] == "classic" and queue["consumer_details"] == []
+            and any(binding["routing_key"] == "request.*" for binding in bindings)
+        )
+        if not topology_valid:
+            raise RuntimeError(
+                f"Unexpected durable topology: exchange={exchange} queue={queue} bindings={bindings}"
+            )
+        results.append({
+            "url": base_url("rabbitmq", 15672) + "/api/queues/%2F/procureflow.notifications",
+            "status": 200,
+            "topology": {
+                "exchange": "procureflow.events/topic/durable",
+                "queue": "procureflow.notifications/classic/durable",
+                "binding": "request.*",
+                "consumers": 0,
+            },
+        })
+        print("PASS durable topic exchange, classic queue and request.* binding", flush=True)
+
         for service in ("app", "notification-worker"):
             compose("exec", "-T", service, "java", "-version")
         compose("exec", "-T", "frontend", "nginx", "-t")
@@ -110,7 +158,7 @@ def main():
 
     output = ROOT / "target" / "foundation-smoke.json"
     output.parent.mkdir(exist_ok=True)
-    output.write_text(json.dumps({"project": project, "checks": results, "healthyServices": 5, "oidc": oidc}, indent=2) + "\n")
+    output.write_text(json.dumps({"project": project, "checks": results, "healthyServices": 6, "oidc": oidc}, indent=2) + "\n")
     print(f"PASS isolated foundation stack and cleanup. Report: {output}")
 
 

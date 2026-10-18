@@ -66,7 +66,8 @@ services:
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
 
-  # Process/health scaffold only; notification consumption is implemented in P4.
+  # Durable publishing runtime: PostgreSQL-fenced outbox relay with bounded retry/quarantine.
+  # Consumer materialization and SMTP remain later P4 slices; the queue intentionally accumulates.
   notification-worker:
     image: procureflow-notification-worker:0.1.0-p0
     profiles: ["worker"]
@@ -77,9 +78,48 @@ services:
         MODULE: notification-worker
     environment:
       SERVER_PORT: 8081
+      WORKER_DB_URL: jdbc:postgresql://postgres:5432/procureflow
+      WORKER_DB_USERNAME: procureflow_worker
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?Set WORKER_DB_PASSWORD for local development}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: procureflow
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD for local development}
+    ports:
+      - "127.0.0.1:${WORKER_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        # The application owns migrations; the worker only starts against a migrated database.
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  # Durable single-broker topology; management UI is bound to loopback only.
+  rabbitmq:
+    image: rabbitmq:4.3.6-management@sha256:54cb013d76cd1fd6c0a0708f34062ad61c452bb6f016b434c6c33f1a765d2b58
+    profiles: ["worker"]
+    environment:
+      RABBITMQ_DEFAULT_USER: procureflow
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD for local development}
+    ports:
+      - "127.0.0.1:${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 20
+    # The upstream entrypoint drops privileges (chown/setuid); read-only rootfs or dropped
+    # capabilities break its startup. Network surface stays loopback-only.
     security_opt: ["no-new-privileges:true"]
 
   # Local-only OIDC realm and fictional users; no real account password is committed.
@@ -119,3 +159,4 @@ services:
 
 volumes:
   postgres-data:
+  rabbitmq-data:

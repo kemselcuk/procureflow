@@ -1,6 +1,25 @@
 spring:
   application:
     name: procureflow-notification-worker
+  datasource:
+    url: ${WORKER_DB_URL:jdbc:postgresql://localhost:5432/procureflow}
+    username: ${WORKER_DB_USERNAME:procureflow_worker}
+    password: ${WORKER_DB_PASSWORD}
+    hikari:
+      connection-timeout: 5000
+      maximum-pool-size: 4
+      connection-init-sql: "SET lock_timeout = '5s'; SET statement_timeout = '15s'"
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:procureflow}
+    password: ${RABBITMQ_PASSWORD}
+    connection-timeout: 5s
+    requested-heartbeat: 30s
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
 server:
   port: 8081
   shutdown: graceful
@@ -14,3 +33,18 @@ management:
       show-details: never
       probes:
         enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+worker:
+  relay:
+    scheduled: true
+    batch-size: 20
+    max-inflight: 100
+    lease-timeout: 30s
+    confirm-timeout: 10s
+    max-attempts: 10
+    retry-backoff: 5s
+    retry-backoff-multiplier: 2.0
+    retry-backoff-max: 5m
+    poll-interval: 1s
