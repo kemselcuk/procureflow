@@ -1,6 +1,6 @@
 # ProcureFlow implementation plan
 
-Status: **P0 and P1 accepted after independent review and hosted verification; P2 in progress; P3–P7 pending**.
+Status: **P0–P2 accepted after independent review and hosted verification; P3–P7 pending**.
 
 Prepared: 2026-10-17. This file is the task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md).
 
@@ -81,7 +81,7 @@ Historical evidence identifies the primary implementer as M, bounded contributor
 
 ## Phases, dependencies and acceptance
 
-P0 and P1 are complete; P2 is in progress; P3–P7 are pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
+P0–P2 are complete; P3–P7 are pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
 
 ### P0 — Reproducible foundation and compatibility gate
 
@@ -132,7 +132,7 @@ Exit: the P1 subset of AC-SEC/AC-DB passes for identity, membership, department 
 
 Depends on: P1. Owner: M/S; D may own agreed fixtures or independent API tests. Estimate: 10–16 hours.
 
-Started on 2026-10-18, baseline `02139a7`, after P1 acceptance. P2.1–P2.4 are accepted locally after runtime checks and independent review; publication and hosted verification remain open. The [execution record](#p2-execution-record) distinguishes local acceptance from the final hosted gate.
+Started on 2026-10-18, baseline `02139a7`, after P1 acceptance. P2.1–P2.4 and the exit gate are complete after runtime checks, independent review and all three jobs passing on [hosted run 39128889909](https://github.com/kemselcuk/procureflow/actions/runs/39128889909), executable revision `7a5cc848e58147e39a984cb4be4b43d7cca93c1f`. The [execution record](#p2-execution-record) records acceptance and limitations.
 
 #### P2 endpoint/action and retry contract
 
@@ -360,7 +360,7 @@ M accepts **P1** for that reviewed/tested executable revision, with no unresolve
 
 ### P2 execution record
 
-Main-agent implementation based on `02139a7`, currently uncommitted. D011 owns the request/retry decisions. V3 adds company-linked requests/history, command-result claims and immutable outbox/recipient snapshots. Commands use the P1 company authorization barrier, PostgreSQL row locks, current membership/role/ownership checks, expected versions and a single transaction for business/history/audit/outbox/result writes. Create/submit use canonical command fingerprints and original-response replay. Draft history carries metadata, not previous private content. No broker, delivery, final approval, charge or rendered product screen is implemented.
+Main-agent implementation based on `02139a7`, initially uncommitted; publication is recorded below. D011 owns the request/retry decisions. V3 adds company-linked requests/history, command-result claims and immutable outbox/recipient snapshots. Commands use the P1 company authorization barrier, PostgreSQL row locks, current membership/role/ownership checks, expected versions and a single transaction for business/history/audit/outbox/result writes. Create/submit use canonical command fingerprints and original-response replay. Draft history carries metadata, not previous private content. No broker, delivery, final approval, charge or rendered product screen is implemented.
 
 Contract challenge R0: task `node:delegated-task:command%3Amcp%3A42c4fe9e-e749-4183-84be-daad59502641%3Adelegate-task%3Aprocureflow-p2-contract-sol-20261018-r0`, provider `opencode`, model `openai/gpt-6.1-sol`, requested variant `high`, read-only. It identified two high design risks (implicit claim/request FK locks; immutable request/history integrity) and five medium ambiguities (before-state recipients, mutable membership-derived fingerprints, finance/history scope, CORS key, bounded lock waits). M inspected the concerns and implemented the explicit contract, FK/trigger/grant protections, correlation propagation and targeted cases. These were design concerns, not verified vulnerabilities in completed code; independent source review is separate.
 
@@ -384,3 +384,9 @@ Closure review R2 returned no review report and is not acceptance evidence. Read
 Final bounded closure R4: task `node:delegated-task:command%3Amcp%3A994e418b-4748-475b-abb8-5855966bc1c8%3Adelegate-task%3Aprocureflow-p2-code-sol-20261018-r4`; [report](t3-thread://v1/thread:delegated-task:command%3Amcp%3A994e418b-4748-475b-abb8-5855966bc1c8%3Adelegate-task%3Aprocureflow-p2-code-sol-20261018-r4), provider `opencode`, model `openai/gpt-6.1-sol`, requested/saved variant `high` (not execution attestation). Reviewer verified original Git blob/body/hash, regenerated the identical corrective diff and reconstructed the complete original file after removing only the three added tests/helper and restoring the original fixture. M1 and the historical assertion-preservation limitation are closed; no remaining review objection. No reviewer test/build/container execution or writes. The final 83-file index manifest remains `8ca6255285e49f8566b5aa287eb14882f2fd4dcf97f0231921a433ce5ff93351`.
 
 M's local acceptance: read the reports, recovered/corrective diff and actual test output; verified source/index hashes and the real-provider smoke evidence; accepted P2.1–P2.4 and the local P2 exit gate. Unrelated unstaged changes remain untouched and excluded from the 23-file publication candidate. No generated evidence, local instruction/learning material, environment values, dependencies or credentials are staged. Redacted staged Gitleaks scan reported no findings; final publication checks follow this documentation-only acceptance update. Hosted verification and final phase acceptance remain open; no P3 final approval, P4 delivery, full UI or cloud behavior is inferred.
+
+Publication: committed the reviewed 23-file slice as `7a5cc848e58147e39a984cb4be4b43d7cca93c1f`, normally pushed `main` and fetched. Local HEAD, `origin/main` and GitHub's commit API matched; all 83 committed source/config blobs matched the reviewed manifest. Final redacted staged and one-commit publication-range Gitleaks scans reported no findings. The unrelated unstaged change was not committed. A GitHub-tree filename check found no private-document/environment/key paths; this scoped check and scanner result are not an absolute no-secret guarantee.
+
+Hosted acceptance: `gh run watch 39128889909 --exit-status` exited 0. M fetched completed-run metadata and full logs, verified exact revision `7a5cc84` and successful backend/frontend/containers jobs, then checked meaningful command output: Maven 3.9.11/Java 21.0.12.1; **3 HTTP + 2 FoundationIT + 28 IdentityAccessIT + 29 RequestLifecycleIT = 62 backend cases**, zero failures/errors/skips, against real PostgreSQL 18.6; **14 Angular tests**, type checks, production build and npm audit with no reported vulnerabilities. Container packaging skips duplicate tests; the backend job runs the full suite. Four images built, five services became healthy, all four HTTP/proxy checks and Java/nginx checks passed, then real Keycloak Code+S256, request create/replay/submit/history/manager-reject/access denials, refresh/logout/revocation and isolated cleanup passed in project `procureflow-check-29404e9cda2d`. Metadata/log copies: ignored `target/github-ci-39128889909.{json,log}`; [run URL](https://github.com/kemselcuk/procureflow/actions/runs/39128889909) is the hosted evidence. This is protocol/HTTP acceptance, not rendered Angular browser acceptance or messaging recovery.
+
+M accepts **P2** for that reviewed/tested executable revision, with no unresolved review objection. This README/PLAN-only follow-up records hosted evidence/status, uses `[skip ci]` and changes no application/configuration/test source; it does not claim that a new executable revision was tested. P3 final approval and budget correctness are next. No PR, cloud resource/deployment, paid runner/storage or additional model/API spend was introduced.
