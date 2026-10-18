@@ -10,9 +10,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.core.annotation.Order;
 import org.springframework.transaction.annotation.Transactional;
 
 @Component
+@Order(0)
 @Profile("local-demo")
 @ConditionalOnProperty(name = "app.demo.enabled", havingValue = "true")
 public class DemoData implements ApplicationRunner {

@@ -1,6 +1,7 @@
 package com.procureflow.app.requests;
 
 import com.procureflow.app.audit.AuditWriter;
+import com.procureflow.app.budgets.BudgetCharger;
 import com.procureflow.app.identity.Actor;
 import com.procureflow.app.identity.ActorAccess;
 import com.procureflow.app.identity.Role;
@@ -23,10 +24,11 @@ public class RequestCommands {
     private final AuditWriter audit;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final BudgetCharger budgets;
     RequestCommands(ActorAccess access, RequestRepository requests, CommandResults results, RequestEvents events,
-                    AuditWriter audit, JdbcTemplate jdbc, Clock clock) {
+                    AuditWriter audit, JdbcTemplate jdbc, Clock clock, BudgetCharger budgets) {
         this.access = access; this.requests = requests; this.results = results; this.events = events;
-        this.audit = audit; this.jdbc = jdbc; this.clock = clock;
+        this.audit = audit; this.jdbc = jdbc; this.clock = clock; this.budgets = budgets;
     }
 
     @Transactional
@@ -92,7 +94,8 @@ public class RequestCommands {
     public RequestData.Result reject(UUID id, RequestData.Reject input) {
         var actor = access.command(false);
         var before = requests.find(actor.companyId(), id, true); requests.requireRead(actor, before);
-        if (before.ownerIdentityId().equals(actor.identityId()) || actor.identityId().equals(before.priorApproverIdentityId()))
+        if (before.ownerIdentityId().equals(actor.identityId()) || before.status() == RequestStatus.AWAITING_FINANCE_APPROVAL
+                && actor.identityId().equals(before.priorApproverIdentityId()))
             throw ApiException.forbidden();
         if (!before.status().pending()) throw ApiException.conflict("invalid_request_state");
         boolean permitted = before.status() == RequestStatus.AWAITING_DEPARTMENT_APPROVAL
@@ -102,6 +105,41 @@ public class RequestCommands {
         version(before, input.version());
         if (input.reason().indexOf('\0') >= 0) throw ApiException.invalid("invalid_rejection_reason");
         return new RequestData.Result(200, transition(actor, before, RequestStatus.REJECTED, "request.rejected", input.reason().strip(), commandTime()).view());
+    }
+
+    @Transactional
+    public RequestData.Result approve(UUID id, RequestData.Version input) {
+        var actor = access.command(false);
+        var before = requests.find(actor.companyId(), id, true); requests.requireRead(actor, before);
+        if (before.ownerIdentityId().equals(actor.identityId())) throw ApiException.forbidden();
+        version(before, input.version());
+        if (!before.status().pending()) throw ApiException.conflict("invalid_request_state");
+        boolean department = before.status() == RequestStatus.AWAITING_DEPARTMENT_APPROVAL;
+        if (department ? !actor.has(Role.DEPARTMENT_MANAGER) || !actor.managedDepartmentIds().contains(before.departmentId())
+                : !actor.has(Role.FINANCE_APPROVER) || actor.identityId().equals(before.priorApproverIdentityId()))
+            throw ApiException.forbidden();
+        var now = commandTime(); var correlation = UUID.randomUUID();
+        boolean finalApproval = !department || before.amount().compareTo(new java.math.BigDecimal("1000.00")) <= 0;
+        var next = finalApproval ? RequestStatus.APPROVED : RequestStatus.AWAITING_FINANCE_APPROVAL;
+        var action = finalApproval ? "request.approved" : "request.department_approved";
+        if (finalApproval) budgets.charge(actor.companyId(), before.departmentId(), id, before.amount(), before.version() + 1, now, correlation);
+        jdbc.update("""
+                UPDATE purchase_request SET status = ?, version = version + 1, updated_at = ?, correlation_id = ?,
+                department_approver_identity_id = ?, department_approver_membership_id = ?, approved_at = ?
+                WHERE company_id = ? AND id = ?
+                """, next.name(), Timestamp.from(now), correlation,
+                department ? actor.identityId() : before.priorApproverIdentityId(),
+                department ? actor.membershipId() : before.priorApproverMembershipId(),
+                finalApproval ? Timestamp.from(now) : null, actor.companyId(), id);
+        var after = requests.find(actor.companyId(), id, false);
+        jdbc.update("""
+                INSERT INTO approval_step (company_id, request_id, step, request_version, actor_identity_id,
+                actor_membership_id, occurred_at, correlation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, actor.companyId(), id, department ? "DEPARTMENT" : "FINANCE", after.version(),
+                actor.identityId(), actor.membershipId(), Timestamp.from(now), correlation);
+        record(actor, before, after, action, null, now);
+        events.capture(actor, before, after, action, now);
+        return new RequestData.Result(200, after.view());
     }
 
     private RequestRecord transition(Actor actor, RequestRecord before, RequestStatus next, String action, String reason, Instant now) {

@@ -445,13 +445,15 @@ class RequestLifecycleIT {
     }
 
     private void financeEntryFixture(UUID requestId) {
-        // P3 approval is not implemented: this owner-only fixture establishes state/history, not its audit/event effects.
+        // Owner-only finance-entry setup; approval execution is tested through real commands in ApprovalBudgetIT.
         var correlation = UUID.randomUUID();
         new TransactionTemplate(new DataSourceTransactionManager(Objects.requireNonNull(owner.getDataSource()))).executeWithoutResult(ignored -> {
             owner.update("UPDATE purchase_request SET status = 'AWAITING_FINANCE_APPROVAL', version = version + 1, department_approver_identity_id = ?, department_approver_membership_id = ?, correlation_id = ? WHERE id = ?",
                     id("a:manager:identity"), id("a:manager:membership"), correlation, requestId);
             owner.update("INSERT INTO request_history (id, company_id, request_id, request_version, action, from_status, to_status, actor_identity_id, actor_membership_id, correlation_id, occurred_at) VALUES (?, ?, ?, 2, 'request.department_approved', 'AWAITING_DEPARTMENT_APPROVAL', 'AWAITING_FINANCE_APPROVAL', ?, ?, ?, ?)",
                     UUID.randomUUID(), id("a"), requestId, id("a:manager:identity"), id("a:manager:membership"), correlation, Timestamp.from(NOW));
+            owner.update("INSERT INTO approval_step (company_id, request_id, step, request_version, actor_identity_id, actor_membership_id, occurred_at, correlation_id) VALUES (?, ?, 'DEPARTMENT', 2, ?, ?, ?, ?)",
+                    id("a"), requestId, id("a:manager:identity"), id("a:manager:membership"), Timestamp.from(NOW), correlation);
         });
     }
     private UUID create(String actor, String amount) throws Exception {

@@ -73,6 +73,8 @@ class RequestRepository {
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
                 rs.getTimestamp("submitted_at") == null ? null : rs.getTimestamp("submitted_at").toInstant(),
                 rs.getObject("department_approver_identity_id", UUID.class), rs.getObject("department_approver_membership_id", UUID.class),
-                rs.getObject("correlation_id", UUID.class));
+                rs.getObject("correlation_id", UUID.class),
+                rs.getTimestamp("approved_at") == null ? null : rs.getTimestamp("approved_at").toInstant(),
+                rs.getDate("budget_month") == null ? null : rs.getDate("budget_month").toLocalDate());
     }
 }

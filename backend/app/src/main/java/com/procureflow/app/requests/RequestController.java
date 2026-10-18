@@ -63,6 +63,15 @@ public class RequestController {
     ResponseEntity<RequestData.View> reject(@PathVariable UUID id, @Valid @RequestBody RequestData.Reject input) {
         return response(commands.reject(id, input));
     }
+    @PostMapping("/{id}/approve")
+    @Operation(operationId = "approveRequest", description = "Assigned current-step approver; requester cannot approve, and the finance actor must differ from the department actor. Up to EUR 1000 department approval is final; larger amounts require finance. Final approval charges the captured UTC month atomically. Repeated completed commands conflict without duplicate effects.")
+    @ApiResponse(responseCode = "200", description = "Committed approval and current request view",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = RequestData.View.class)))
+    @ApiResponse(responseCode = "404", description = "Request absent from current company", content = @Content)
+    @ApiResponse(responseCode = "409", description = "stale_request, invalid_request_state, budget_missing, insufficient_budget or retryable_conflict", content = @Content)
+    ResponseEntity<RequestData.View> approve(@PathVariable UUID id, @Valid @RequestBody RequestData.Version input) {
+        return response(commands.approve(id, input));
+    }
     @GetMapping("/{id}")
     @Operation(operationId = "getRequest", description = "Owner; assigned manager for non-drafts; or finance for above-threshold requests with actual department approval. Admin alone grants no request access.")
     @ApiResponse(responseCode = "404", description = "Request absent from current company", content = @Content)

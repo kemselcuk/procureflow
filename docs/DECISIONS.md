@@ -108,6 +108,12 @@ Optimistic locking and conditional SQL updates are alternatives. Pessimistic loc
 
 Reference: [PostgreSQL explicit locking](https://www.postgresql.org/docs/current/explicit-locking.html) documents conflicting row locks and consistent acquisition order. Use short database transactions without broker/SMTP calls while holding purchase/budget locks. Configure bounded lock/transaction waits and return a retryable conflict where appropriate; no silent retry may duplicate business effects.
 
+### P3 implementation contract
+
+Approval uses an expected version and explicit 409 on completed/stale retries, rather than extending the create/submit result cache. Lock current company authorization, then the scoped request; capture one UTC instant after the request lock and before the budget lookup, and charge its UTC month. A shared budget application service joins the caller's existing transaction, locks the JPA budget entity, checks remaining funds, flushes usage/version and inserts a unique tenant-linked charge. Request commands do not import the budget repository. This preserves the existing administrator budget-lock path and makes JDBC request/history/outbox writes participate in the same transaction as JPA usage updates.
+
+Append-only approval steps bind actor/membership, request version/history, timestamp and correlation; unique step and request/actor keys prohibit duplicate or same-actor two-step approval. A unique charge binds company, request, department, budget period and final approval version. Deferred settlement checks validate the completed approved request/step/charge relationship at commit without taking a request FK lock before the explicit request lock. These checks complement, not replace, application authorization and the atomic usage update. Nullable `approvedAt` and derived UTC `budgetMonth` expose the actual charging period; submitted time never chooses that month. No budget reservation or automatic missing-month creation is introduced.
+
 ## D005 — Transactional outbox with at-least-once delivery
 
 Business transactions insert an event into PostgreSQL; they never require a successful RabbitMQ connection to commit a purchase operation. The relay claims pending rows with a recoverable lease, publishes outside the purchase transaction, uses persistent messages/durable topology and checks mandatory routing plus publisher confirms. Only then does it mark a row published.

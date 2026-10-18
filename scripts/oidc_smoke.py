@@ -10,6 +10,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime, timezone
+from decimal import Decimal
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -53,7 +55,10 @@ def request_json(url, body=None, token=None, method=None, idempotency_key=None):
         with urllib.request.urlopen(request, timeout=20) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as error:
-        return error.code, None
+        try:
+            return error.code, json.load(error)
+        except (ValueError, UnicodeError):
+            return error.code, None
 
 
 def post_form(url, fields):
@@ -116,6 +121,7 @@ def check_identity_journey(provider, frontend, password):
     login("a-finance", check_replay=True)
     employee = login("a-employee")
     manager = login("a-manager")
+    finance = login("a-finance")
     admin = login("a-admin")
     foreign = login("b-employee")
     first_status, own = request_json(frontend + "/api/me", token=employee["access_token"])
@@ -126,6 +132,8 @@ def check_identity_journey(provider, frontend, password):
         raise RuntimeError("An employee gained administrator authority")
     requests = check_request_journey(frontend, employee["access_token"], manager["access_token"],
                                      foreign["access_token"], admin["access_token"])
+    approvals = check_approval_journey(frontend, employee["access_token"], manager["access_token"],
+                                        finance["access_token"], foreign["access_token"], admin["access_token"])
     refresh = {"grant_type": "refresh_token", "client_id": "procureflow-web", "refresh_token": employee["refresh_token"]}
     status, renewed = post_form(token_endpoint, refresh)
     if status != 200 or request_json(frontend + "/api/me", token=renewed["access_token"])[0] != 200:
@@ -144,7 +152,8 @@ def check_identity_journey(provider, frontend, password):
         raise RuntimeError("A logged-out refresh session remained usable")
     print("PASS real Keycloak authorization code + PKCE, code replay denial, refresh, logout and live membership revocation", flush=True)
     return {"flow": "authorization_code", "pkce": "S256", "companies": 2,
-            "codeReplayDenied": True, "revocationDenied": True, "refreshAndLogout": True, "requests": requests}
+            "codeReplayDenied": True, "revocationDenied": True, "refreshAndLogout": True,
+            "requests": requests, "approvals": approvals}
 
 
 def check_request_journey(frontend, employee, manager, foreign, administrator):
@@ -175,3 +184,58 @@ def check_request_journey(frontend, employee, manager, foreign, administrator):
         raise RuntimeError("A terminal request allowed another transition")
     print("PASS real OIDC draft/replay/submit/manager-reject/history and foreign-company/private-draft/admin denials", flush=True)
     return {"requestId": created["id"], "createReplay": True, "submitRejectHistory": True, "scopeDenials": True}
+
+
+def check_approval_journey(frontend, employee, manager, finance, foreign, administrator):
+    endpoint = frontend + "/api/requests"
+    status, actor = request_json(frontend + "/api/me", token=employee)
+    if status != 200:
+        raise RuntimeError("Approval fixture membership could not be resolved")
+    now = datetime.now(timezone.utc)
+    months = [now.strftime("%Y-%m"), f"{now.year + (now.month == 12):04d}-{now.month % 12 + 1:02d}"]
+    for month in months:
+        status, _ = request_json(frontend + "/api/admin/departments/" + actor["departmentId"] + "/budgets/" + month,
+                                 {"limitAmount": 5000}, administrator, "PUT")
+        if status != 200:
+            raise RuntimeError("Approval fixture budget setup failed")
+    charged = {month: Decimal("0") for month in months}
+    for amount in (999.99, 1000.00, 1000.01, 6000.00):
+        status, draft = request_json(endpoint, {"title": "Approval integration fixture", "justification": "Fictional local-only purchase", "amount": amount},
+                                     employee, "POST", str(uuid.uuid4()))
+        if status != 201:
+            raise RuntimeError("Approval fixture creation failed")
+        resource = endpoint + "/" + draft["id"]
+        if request_json(resource + "/submit", {"version": 0}, employee, "POST", str(uuid.uuid4()))[0] != 200:
+            raise RuntimeError("Approval fixture submission failed")
+        for token, expected in ((foreign, 404), (employee, 403), (administrator, 403), (finance, 403)):
+            if request_json(resource + "/approve", {"version": 1}, token, "POST")[0] != expected:
+                raise RuntimeError("Approval command scope/separation boundary failed")
+        status, approved = request_json(resource + "/approve", {"version": 1}, manager, "POST")
+        if status != 200:
+            raise RuntimeError("Department approval failed")
+        if request_json(resource + "/approve", {"version": 1}, manager, "POST")[0] != 409:
+            raise RuntimeError("Completed department command did not return a safe retry conflict")
+        if amount > 1000:
+            if approved["status"] != "AWAITING_FINANCE_APPROVAL" or approved["approvedAt"] is not None:
+                raise RuntimeError("Department approval finalized an above-threshold purchase")
+            if request_json(resource + "/approve", {"version": 2}, manager, "POST")[0] != 403:
+                raise RuntimeError("The department actor bypassed finance separation")
+            status, approved = request_json(resource + "/approve", {"version": 2}, finance, "POST")
+            if amount == 6000:
+                if status != 409 or approved.get("code") != "insufficient_budget":
+                    raise RuntimeError("Insufficient budget did not prevent final approval")
+                continue
+            if status != 200:
+                raise RuntimeError("Finance approval failed")
+        if approved["status"] != "APPROVED" or approved["budgetMonth"] != approved["approvedAt"][:7]:
+            raise RuntimeError("Final approval state or UTC charging month is wrong")
+        charged[approved["budgetMonth"]] += Decimal(str(amount))
+        if request_json(resource + "/cancel", {"version": approved["version"]}, employee, "POST")[0] != 409:
+            raise RuntimeError("Approved purchase was cancelled")
+    for month, expected_usage in charged.items():
+        status, budgets = request_json(frontend + "/api/budgets?month=" + month, token=finance)
+        budget = next((value for value in budgets if value["departmentId"] == actor["departmentId"]), None) if status == 200 else None
+        if budget is None or Decimal(str(budget["usedAmount"])) != expected_usage:
+            raise RuntimeError("Final budget usage differs from successful approval totals")
+    print("PASS real OIDC threshold approvals, separate finance actor, retry conflicts and insufficient-budget atomicity", flush=True)
+    return {"thresholdRoutes": True, "separateActors": True, "retryConflicts": True, "budgetUsage": True}

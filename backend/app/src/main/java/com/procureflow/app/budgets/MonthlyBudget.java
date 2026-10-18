@@ -29,6 +29,12 @@ public class MonthlyBudget {
         limitAmount = limit;
     }
 
+    void charge(BigDecimal amount) {
+        if (amount.signum() <= 0) throw ApiException.invalid("invalid_charge");
+        if (usedAmount.add(amount).compareTo(limitAmount) > 0) throw ApiException.conflict("insufficient_budget");
+        usedAmount = usedAmount.add(amount);
+    }
+
     BudgetService.BudgetView view() {
         return new BudgetService.BudgetView(id, departmentId, budgetMonth.toString(), limitAmount, usedAmount,
                 limitAmount.subtract(usedAmount), version);

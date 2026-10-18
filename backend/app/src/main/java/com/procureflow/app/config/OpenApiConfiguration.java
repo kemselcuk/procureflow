@@ -15,6 +15,6 @@ public class OpenApiConfiguration {
         return new OpenAPI().info(new Info()
                 .title("ProcureFlow API")
                 .version("0.1.0")
-                .description("Identity/company and request lifecycle APIs. Final approval and notification delivery remain planned."));
+                .description("Identity/company, request lifecycle and budget-checked approval APIs. Notification delivery remains planned."));
     }
 }

@@ -25,7 +25,7 @@ public final class RequestData {
     public record View(UUID id, UUID companyId, UUID requesterIdentityId, UUID departmentId, String title,
                        String justification, BigDecimal amount, String currency, RequestStatus status, long version,
                        Instant createdAt, Instant updatedAt, Instant submittedAt, UUID departmentApproverIdentityId,
-                       UUID correlationId) {}
+                       UUID correlationId, Instant approvedAt, String budgetMonth) {}
     public record Summary(UUID id, UUID departmentId, String title, BigDecimal amount, RequestStatus status,
                           long version, Instant createdAt) {}
     public record History(UUID id, long version, String action, String fromStatus, String toStatus,
