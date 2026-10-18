@@ -695,8 +695,8 @@ class NotificationDeliverySchemaIT {
             // Bounded poll interval; the pass condition is the observed database state, never the sleep.
             Thread.sleep(50);
         }
-        fail("admin backend %d was never observed waiting on the company barrier held by worker backend %d; "
-                + "last pg_stat_activity row: %s".formatted(blockedPid, blockerPid, activity(blockedPid)));
+        fail(("admin backend %d was never observed waiting on the company barrier held by worker backend %d; "
+                + "last pg_stat_activity row: %s").formatted(blockedPid, blockerPid, activity(blockedPid)));
     }
 
     private static boolean blockedBehindWorkerBarrier(int blockedPid, int blockerPid) {

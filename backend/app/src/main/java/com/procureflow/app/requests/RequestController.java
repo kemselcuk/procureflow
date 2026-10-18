@@ -82,6 +82,8 @@ public class RequestController {
     List<RequestData.History> history(@PathVariable UUID id) { return queries.history(id); }
     @GetMapping
     @Operation(operationId = "listRequests", description = "Zero-based page, size 1-100. view=mine or actionable manager/finance inbox; optional uppercase status filter. Stable creation-time/ID order.")
+    @ApiResponse(responseCode = "200", description = "One page of current-company request summaries for the selected view and status filter",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = RequestData.Page.class)))
     RequestData.Page list(@RequestParam(defaultValue = "mine") String view, @RequestParam(required = false) RequestStatus status,
                                      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
         return queries.list(view, status, page, size);
