@@ -1,6 +1,6 @@
 # ProcureFlow implementation plan
 
-Status: **P0–P3 accepted after independent review and hosted verification; P4 in progress; P5–P7 pending**.
+Status: **P0–P3 accepted after independent review and hosted verification; P4 in progress; an early P5 notification panel is in preparation; remaining P5–P7 work pending**.
 
 Prepared: 2026-10-17. This file is the task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md).
 
@@ -81,7 +81,7 @@ Historical evidence identifies the primary implementer as M, bounded contributor
 
 ## Phases, dependencies and acceptance
 
-P0–P3 are complete; P4 is in progress; P5–P7 are pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
+P0–P3 are complete; P4 is in progress; an early P5 notification panel is in preparation and the remaining P5–P7 work is pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
 
 ### P0 — Reproducible foundation and compatibility gate
 
@@ -223,6 +223,8 @@ Exit: AC-NOTIFY and AC-OUTAGE plus notification tenant/recipient denial tests pa
 ### P5 — Complete Angular product
 
 Depends on: P2 API contract; can start alongside P3/P4 after P1 login is stable. Final acceptance depends on P3 and P4. Owner: M/S, with D for bounded routine screens after interfaces are agreed. Estimate: 16–24 hours.
+
+The bounded notification-list/read panel started against the frozen P4 HTTP contract from baseline `adf11c3`, independently of API and relay implementation. Only the new notification feature and minimal landing-page mounting/tests are owned by this slice; authentication/token code, dependencies and unrelated product screens remain unchanged. Component/HTTP fixture checks cannot establish real delivery or rendered-browser acceptance; integration with the reviewed API and messaging pipeline remains required. This is not P5 completion.
 
 - P5.1: Keycloak login/logout, in-memory token lifecycle, safe API interceptor and route guards. Backend authorization remains authoritative.
 - P5.2: own request list/form/detail/timeline and approval inbox, including denied/stale/insufficient-budget responses and prevention of accidental repeat submission.
@@ -472,3 +474,11 @@ Existing-volume role-upgrade verification passed against an owned disposable Pos
 Upgrade evidence limitation: this is real Flyway/PostgreSQL plus the documented owner SQL, not an existing-volume full Compose/Keycloak upgrade. An intermediate temporary JSON incorrectly listed completed steps as not run because of inconsistent ID strings. The author corrected that report-only comparison and reran the verifier; M inspected the correction and final log/JSON: all 12 steps pass and `stepsNotRun` is empty. **L2 is closed**; final JSON SHA-256 `a36f4106fdd51043a447e9146328511a9155fb2cf0859fccf8d126e8e0c2d94a`, temporary verifier SHA-256 `213267d3ffe55558d1b4dcab9b9ff3e35bb23eb4384a7a5370e37a0e1083ba7a`. Two earlier ad-hoc fixture attempts exited before database readiness and prove neither migration success nor a product defect. No reset or credential rotation was used to bypass prerequisites.
 
 M accepts the **bounded P4 database foundation locally**, after independent source/security review, M1 closure, main-checkout regression, fresh bootstrap/provider verification and inspection of upgrade execution evidence. L1 (test timeout formatting) remains a nonblocking diagnostic limitation. The 11-file candidate contains the eight reviewed authored files plus README/PLAN/DECISIONS only; the unrelated unstaged file and local instructions remain excluded. Initial redacted staged Gitleaks scan reported no findings; final publication checks follow the final documentation update. Publication/hosted evidence is separate. P4 as a phase remains open: relay, consumer, SMTP, notification HTTP APIs and real messaging recovery are not implemented or accepted by this slice.
+
+Foundation publication: committed the reviewed 11-file slice as `adf11c37cfe06dbbb676abd7085166a62959745a`, normally pushed `main` and fetched. Local committed source blobs match the reviewed 90-file manifest; GitHub's commit API returned that same revision. Final staged and one-commit publication-range redacted Gitleaks scans reported no findings. No local instruction file, generated evidence or environment value was included; the unrelated unstaged file remained untouched. Hosted verification followed on that exact revision.
+
+Hosted foundation acceptance: `gh run watch 39158792532 --exit-status` exited 0. M fetched completed metadata/full logs, verified revision `adf11c37cfe06dbbb676abd7085166a62959745a` and successful backend/frontend/containers jobs, then inspected actual command output. Java 21.0.12.1 passed **3 HTTP + 114 integration = 117 backend cases**, including all 11 delivery-schema cases, zero failures/errors/skips, against real PostgreSQL. **14 Angular tests**, type checks, production build and npm audit passed with no reported vulnerabilities. Four image builds/five healthy services, API/proxy/static/Java/nginx checks, real Keycloak Code+S256/replay/request/threshold approval/finance separation/conflict/insufficient-budget/refresh/logout/revocation checks and isolated cleanup passed in project `procureflow-check-1d5397c969ba`. Container packaging skips duplicate tests; the backend job runs the suite. Metadata/log copies: ignored `target/github-ci-39158792532.{json,log}`; [run URL](https://github.com/kemselcuk/procureflow/actions/runs/39158792532) is the hosted evidence. The pre-worker database role-upgrade verifier remains local-only evidence; CI proves fresh V5 bootstrap/regression, not an existing-volume full-stack upgrade.
+
+M accepts the **database foundation slice locally and on hosted CI**, not the P4 phase. This README/PLAN-only follow-up uses `[skip ci]` and changes no executable/configuration/test source; it records the tested revision without pretending a new executable was verified. P4 delivery/recovery and complete P5 UI remain open; L1 is assigned to the API slice. No PR, deployment, paid runner/storage or additional service/model charge was introduced.
+
+Next bounded slices use that committed baseline in separate worktrees: notification HTTP API/authorization tests (including L1's diagnostic-only correction), worker relay/broker infrastructure/tests, and the early P5 notification panel against the same fixed HTTP response shape. Writing ownership is disjoint; migrations and shared event records are frozen. M retains independent review and integration acceptance; none of these running tasks is completion evidence. Consumer materialization, SMTP and complete recovery acceptance follow later.
