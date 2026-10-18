@@ -23,6 +23,7 @@ def main():
         "POSTGRES_PASSWORD": secrets.token_hex(24),
         "APP_DB_PASSWORD": secrets.token_hex(24),
         "MIGRATION_DB_PASSWORD": secrets.token_hex(24),
+        "WORKER_DB_PASSWORD": secrets.token_hex(24),
         "KEYCLOAK_DB_PASSWORD": secrets.token_hex(24),
         "KEYCLOAK_ADMIN_PASSWORD": secrets.token_hex(24),
         "DEMO_PASSWORD": secrets.token_hex(24),

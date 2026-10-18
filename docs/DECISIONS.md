@@ -124,6 +124,12 @@ Retry transient failures with bounded backoff; malformed/unsupported poison even
 
 [RabbitMQ publisher confirms and consumer acknowledgements](https://www.rabbitmq.com/docs/confirms) describe different stages of delivery. A publisher confirmation is not a business-consumer acknowledgement. Durable broker/database volumes and explicit restart tests are required; topology flags alone are not recovery evidence.
 
+### P4 implementation proposal (under challenge)
+
+Keep all asynchronous runners in the separate worker process so a missing broker cannot prevent the business app from starting or approving purchases. Immutable outbox events are the authoritative source; mutable dispatch leases live in a separate tenant-linked table, initialized/backfilled by the migration/capture path. Use database-clock leases, unique fencing tokens and conditional completion updates; never hold a database transaction while publishing or sending SMTP. A consumer commits inbox/delivery/in-app/email-job effects before acknowledging. It compares received data with the canonical snapshot and revalidates membership under the same company authorization barrier as administration. Expose a narrowly scoped database locking function if PostgreSQL's row-lock privileges would otherwise require granting the worker company-update authority; the function needs a fixed search path and restricted execution grants. Shared event records remain independent of application repositories.
+
+Alternatives are an app-hosted relay or direct post-commit broker publication. The former couples broker lifecycle/dependencies to the request process; the latter loses recovery after a committed purchase/process crash unless backed by the same durable outbox. A single worker process may run several separately fenced runners without introducing another service. Dispatch and SMTP failures use bounded backoff/quarantine and explicit operator replay, not unbounded immediate requeue. The plan owns exact routes, claim/replay semantics and the failure acceptance cases. This proposal requires independent review and real-service proof before acceptance.
+
 ## D006 — Durable SMTP jobs and an explicit limitation
 
 The notification worker separately leases database email jobs, sends to local Mailpit and records success/failure. Message IDs and correlation IDs allow observations to be matched to jobs. In-app creation and email-job materialization are idempotent per event/recipient/channel.
@@ -131,6 +137,8 @@ The notification worker separately leases database email jobs, sends to local Ma
 SMTP acceptance and saving “sent” to PostgreSQL are not one atomic transaction. A crash in between may cause a duplicate email on retry. A stable Message-ID is useful for correlation but does not guarantee that SMTP recipients deduplicate. Promise eventual completion after a temporary worker outage and unique database effects, not exactly-once external email delivery. Test the ordinary redelivery path and document the ambiguous acceptance window.
 
 Mailpit is local demonstration infrastructure, not a real transactional email provider. Permanent delivery failures are visible and require correction/replay; “eventually completes” assumes recoverable infrastructure and valid recipients.
+
+P4 initially addresses only fictional local Mailpit recipients as `<identity UUID>@demo.invalid`, derived from the validated snapshot rather than a user-supplied address or JWT claim. No real email address directory or external provider is introduced. Revalidate membership at each SMTP claim, then send outside the transaction; a concurrent revocation cannot recall an already-authorized/in-flight SMTP operation. Persist SKIPPED ineligible jobs and preserve that outcome across ordinary replay. Real-recipient routing would require a separately designed verified-address/privacy contract and is not implied by local notification delivery.
 
 ## D007 — Database migrations, fixtures and audit evidence
 

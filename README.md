@@ -6,6 +6,8 @@ ProcureFlow is a corporate purchase-request and approval application under devel
 
 **Current status: P0–P3 accepted after independent review and passing hosted CI.** [Verified P3 run](https://github.com/kemselcuk/procureflow/actions/runs/39132402726), executable revision `c3e35df`: **106 backend tests**, **14 Angular tests** and the real Keycloak/request/approval/budget journey passed. Department/finance approval and atomic budget charging are implemented; see [P3 evidence and limitations](docs/PLAN.md#p3-execution-record). Notification delivery and full product screens remain planned.
 
+The [P4 database foundation](docs/PLAN.md#p4-execution-record) is separately reviewed and locally verified: **117 backend tests**, fresh Compose/Keycloak regression and a data-preserving V4→V5 database upgrade passed. This is not full P4 or hosted acceptance; broker publication, notification APIs, consumption and SMTP delivery remain unimplemented.
+
 ## Project documents
 
 - [Implementation plan and progress](docs/PLAN.md): scope, task owners, dependencies, acceptance criteria, estimates, risks and current progress.
@@ -18,6 +20,7 @@ Each subject has one authoritative document. This README is the entry point for 
 - Java 21/Maven multi-module build: Spring Boot app, optional worker health scaffold and immutable schema-v1 event records.
 - Public system/OIDC configuration, OpenAPI and health endpoints; protected identity, company-membership, department and monthly-budget APIs; request lifecycle and department/finance approval with atomic budget checks, independently reviewed and locally verified.
 - Flyway schema with tenant-composite constraints; separate runtime/migration/Keycloak database credentials; append-only request history, audit and outbox events. P3 adds immutable approval steps/charges and deferred settlement checks. Final usage, charge, state, history, audit and event/recipient capture share one transaction.
+- V5 adds tenant-linked dispatch/inbox/delivery/notification/email-job tables, atomic dispatch initialization and a restricted worker database login. These are delivery foundations, not a running notification pipeline.
 - Standalone Angular page with Keycloak Code+PKCE integration, membership status, loading/failure/retry states and component tests. Full product screens remain for P5.
 - Pinned multi-stage containers and Compose, checked locally and on standard Ubuntu GitHub runners; a least-permission CI workflow repeats the foundation checks without deployment or paid storage.
 
@@ -38,7 +41,7 @@ Status is deliberately scoped: P0–P3 are accepted locally/hosted; notification
 | Java 21, Spring Boot, Maven | Modular monolith and separate notification worker | [Build](pom.xml), [app](backend/app), [worker](backend/notification-worker) | Java 21.0.12.1 builds; JPA usage/version and JDBC request/history/charge/audit/outbox rollback passed locally/hosted; see P3 evidence |
 | Spring Security, Keycloak/OIDC | Login, validated JWTs and company-scoped permissions | [Identity](backend/app/src/main/java/com/procureflow/app/identity), [realm](infra/keycloak/procureflow-realm.json), [adapter boundary](frontend/src/app/authentication.ts) | [Security tests](backend/app/src/test/java/com/procureflow/app/IdentityAccessIT.java), [real-provider probe](scripts/oidc_smoke.py) and independent R1/R2 reviews passed; [P1 evidence](docs/PLAN.md#p1-execution-record) |
 | JPA/Hibernate, PostgreSQL | Persistence, tenant relationships and concurrency control | [Budget mappings/charger](backend/app/src/main/java/com/procureflow/app/budgets), [access queries](backend/app/src/main/java/com/procureflow/app/identity/ActorAccess.java) | Real PostgreSQL 18.6; observed lock-barrier races for both final routes and administrator limit changes, plus post-flush failure rollback. Independent R1/R2 review and local/hosted gates passed |
-| Flyway | Reproducible schema and constraints | [Migrations](backend/app/src/main/resources/db/migration), [foundation test](backend/app/src/test/java/com/procureflow/app/FoundationIT.java), [upgrade test](backend/app/src/test/java/com/procureflow/app/requests/RequestUpgradeIT.java) | V1–V4 empty-database migration, validation/no-op remigration and a real V3 draft/original retry-response upgrade to V4 passed locally/hosted |
+| Flyway | Reproducible schema and constraints | [Migrations](backend/app/src/main/resources/db/migration), [foundation test](backend/app/src/test/java/com/procureflow/app/FoundationIT.java), [upgrade test](backend/app/src/test/java/com/procureflow/app/requests/RequestUpgradeIT.java), [V5 schema/privileges](backend/app/src/test/java/com/procureflow/app/NotificationDeliverySchemaIT.java) | V1–V4 and V3→V4 compatibility passed locally/hosted. V5 empty-database migration and data-preserving V4→V5 role provisioning/rollback/backfill passed locally; [P4 scope and limitations](docs/PLAN.md#p4-execution-record) |
 | Angular/TypeScript | Complete product UI (planned) | [Foundation/login page](frontend/src/app), [authentication tests](frontend/src/app/authentication.spec.ts) | Type checks, 14 component/service/interceptor tests and production build passed locally/hosted; real-browser product journeys remain planned |
 | Transactional outbox; RabbitMQ planned | Capture committed events, then publish/recover notifications | [Capture](backend/app/src/main/java/com/procureflow/app/requests/RequestEvents.java), [contract](backend/event-contracts/src/main/java/com/procureflow/events/RequestEvent.java) | P2 event/recipient capture and rollback pass without a broker. Relay, RabbitMQ, redelivery and stopped-worker recovery remain P4 |
 | Mailpit | Inspect locally delivered demo email | Local development services | Expected messages visible after worker recovery; SMTP limitations documented |
@@ -80,7 +83,7 @@ python3 scripts/check-foundation.py
 
 This builds three application images plus the pinned PostgreSQL image with its initialization hook, and starts app/PostgreSQL/frontend/optional worker plus pinned Keycloak in a unique local project. Secrets are generated only in memory. It checks readiness/API/OpenAPI/static routing and the real provider's authorization-code + S256 exchange, code replay denial, refresh/logout and membership revocation. The P2 journey creates/replays/submits a draft, reads manager history, rejects it and verifies scope denials. The P3 probe adds threshold approvals with separate actors, safe repeated-command conflicts and insufficient-budget denial; its verification status is recorded separately. The OIDC probe drives real HTTP login forms/protocol calls, **not a rendered-browser test of the Angular adapter**. The checker removes **only its own test containers and database volume** in cleanup. It leaves images/build cache in Docker and writes `target/foundation-smoke.json` after success. The worker check proves process readiness only, not notifications. Loopback ports are isolated; Keycloak/frontend ports are selected before realm import so issuer/redirect URLs remain exact.
 
-For an interactive local/demo stack, set these six environment variables using private terminal input or your local secret manager: `POSTGRES_PASSWORD`, `APP_DB_PASSWORD`, `MIGRATION_DB_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `DEMO_PASSWORD`. Use distinct local-only database/admin passwords, not an account password; never paste them into chat, committed files or shared logs. `DEMO_PASSWORD` is the password you choose for the eight fictional demo identities. `.env.example` contains variable names only; no credentials are supplied by the repository.
+For an interactive local/demo stack, set these seven environment variables using private terminal input or your local secret manager: `POSTGRES_PASSWORD`, `APP_DB_PASSWORD`, `MIGRATION_DB_PASSWORD`, `WORKER_DB_PASSWORD`, `KEYCLOAK_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `DEMO_PASSWORD`. Use distinct local-only database/admin passwords, not an account password; never paste them into chat, committed files or shared logs. `DEMO_PASSWORD` is the password you choose for the eight fictional demo identities. `.env.example` contains variable names only; no credentials are supplied by the repository. `WORKER_DB_PASSWORD` provisions the restricted P4 database login; this alone does not implement notification delivery.
 
 ```sh
 docker compose up --build --wait
@@ -99,6 +102,24 @@ Request API inputs/scopes are in the [P2 matrix](docs/PLAN.md#p2-endpointaction-
 Keep the same password environment when reusing the volume; do not regenerate it between restarts. `docker compose down` stops the development stack and preserves its databases. **Destructive local reset:** `docker compose down --volumes` deletes this project's application and Keycloak databases; use it only for data you intend to discard. Existing P0-only volumes do not contain the new separated database roles because PostgreSQL init scripts run only on an empty volume: migrate roles deliberately or reset only your disposable local data. Never silently delete a volume to bypass this prerequisite.
 
 For frontend hot reload, keep the backend on port 8080 and run `npm start` from `frontend/` after stopping the frontend container; the development proxy forwards `/api/**` and OpenAPI to that backend. The service is loopback-only.
+
+### Existing P1–P3 volume: add the worker login before V5
+
+PostgreSQL initialization does not rerun on an existing volume. Keep all existing passwords unchanged, choose a new private `WORKER_DB_PASSWORD`, and provision the missing role before starting the V5 app. For the default Compose database, run the following **only when `procureflow_worker` does not already exist**; an existing role needs deliberate privilege/password inspection, not an automatic reset:
+
+```sh
+docker compose up -d postgres
+docker compose exec -T postgres psql -U procureflow -d procureflow -v ON_ERROR_STOP=1 <<'SQL'
+\getenv worker_password WORKER_DB_PASSWORD
+\getenv app_database POSTGRES_DB
+CREATE ROLE procureflow_worker LOGIN PASSWORD :'worker_password';
+GRANT CONNECT ON DATABASE :"app_database" TO procureflow_worker;
+GRANT USAGE ON SCHEMA public TO procureflow_worker;
+SQL
+docker compose up --build --wait
+```
+
+The quoted heredoc reads the password from the container environment rather than embedding a value in the command. Do not enable shell/SQL tracing or share credential-bearing output. V5 grants only the required delivery-table and metadata capabilities; it does not grant purchase/budget mutation or Keycloak access. If the role, database CONNECT or schema USAGE prerequisite is missing, V5 stops with an explicit error. No volume reset is required. Existing P0-only volumes also need the earlier P1 role separation before this step.
 
 ## Product acceptance (planned)
 

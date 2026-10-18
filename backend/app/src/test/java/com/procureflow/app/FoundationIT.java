@@ -45,7 +45,7 @@ class FoundationIT {
     @Test
     void migratesEmptyPostgresAndRejectsInvalidCompanyRecords() throws Exception {
         assertThat(Runtime.version().feature()).isEqualTo(21);
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("5");
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (var connection = DriverManager.getConnection(DATABASE.getJdbcUrl(), DATABASE.getUsername(), DATABASE.getPassword());
