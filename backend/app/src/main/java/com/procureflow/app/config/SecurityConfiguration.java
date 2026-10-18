@@ -74,7 +74,8 @@ public class SecurityConfiguration {
         var configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(settings.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
+        configuration.setExposedHeaders(List.of("X-Correlation-ID"));
         configuration.setAllowCredentials(false);
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);

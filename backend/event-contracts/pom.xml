@@ -7,5 +7,5 @@
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <artifactId>event-contracts</artifactId>
-  <description>Shared event contracts will be defined in P2, before messaging implementation.</description>
+  <description>Immutable versioned event records shared by the application and notification worker.</description>
 </project>

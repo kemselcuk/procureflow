@@ -9,6 +9,7 @@ import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -39,10 +40,12 @@ class LoginForm(HTMLParser):
             self.fields[attributes["name"]] = attributes.get("value", "")
 
 
-def request_json(url, body=None, token=None, method=None):
+def request_json(url, body=None, token=None, method=None, idempotency_key=None):
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = "Bearer " + token
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     if body is not None:
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(), headers=headers, method=method)
@@ -112,6 +115,7 @@ def check_identity_journey(provider, frontend, password):
     # Keycloak invalidates the replayed code's session; keep this negative case separate from refresh/logout.
     login("a-finance", check_replay=True)
     employee = login("a-employee")
+    manager = login("a-manager")
     admin = login("a-admin")
     foreign = login("b-employee")
     first_status, own = request_json(frontend + "/api/me", token=employee["access_token"])
@@ -120,6 +124,8 @@ def check_identity_journey(provider, frontend, password):
         raise RuntimeError("Real OIDC identities did not resolve to distinct database companies")
     if request_json(frontend + "/api/admin/memberships", token=employee["access_token"])[0] != 403:
         raise RuntimeError("An employee gained administrator authority")
+    requests = check_request_journey(frontend, employee["access_token"], manager["access_token"],
+                                     foreign["access_token"], admin["access_token"])
     refresh = {"grant_type": "refresh_token", "client_id": "procureflow-web", "refresh_token": employee["refresh_token"]}
     status, renewed = post_form(token_endpoint, refresh)
     if status != 200 or request_json(frontend + "/api/me", token=renewed["access_token"])[0] != 200:
@@ -138,4 +144,34 @@ def check_identity_journey(provider, frontend, password):
         raise RuntimeError("A logged-out refresh session remained usable")
     print("PASS real Keycloak authorization code + PKCE, code replay denial, refresh, logout and live membership revocation", flush=True)
     return {"flow": "authorization_code", "pkce": "S256", "companies": 2,
-            "codeReplayDenied": True, "revocationDenied": True, "refreshAndLogout": True}
+            "codeReplayDenied": True, "revocationDenied": True, "refreshAndLogout": True, "requests": requests}
+
+
+def check_request_journey(frontend, employee, manager, foreign, administrator):
+    endpoint = frontend + "/api/requests"
+    key = str(uuid.uuid4())
+    body = {"title": "Local integration request", "justification": "Fictional local-only workflow check", "amount": 50}
+    status, created = request_json(endpoint, body, employee, "POST", key)
+    if status != 201 or created["status"] != "DRAFT":
+        raise RuntimeError("Real OIDC employee could not create a draft")
+    status, replay = request_json(endpoint, body, employee, "POST", key)
+    if status != 201 or replay != created:
+        raise RuntimeError("Real OIDC draft creation did not replay its original result")
+    resource = endpoint + "/" + created["id"]
+    if request_json(resource, token=foreign)[0] != 404 or request_json(resource, token=administrator)[0] != 403:
+        raise RuntimeError("Real OIDC request company/administrator read boundary failed")
+    if request_json(resource, token=manager)[0] != 403:
+        raise RuntimeError("Real OIDC manager could read a private draft")
+    status, submitted = request_json(resource + "/submit", {"version": 0}, employee, "POST", str(uuid.uuid4()))
+    if status != 200 or submitted["status"] != "AWAITING_DEPARTMENT_APPROVAL":
+        raise RuntimeError("Real OIDC employee could not submit their draft")
+    status, history = request_json(resource + "/history", token=manager)
+    if status != 200 or len(history) != 2:
+        raise RuntimeError("Real OIDC manager could not read submitted request history")
+    status, rejected = request_json(resource + "/reject", {"version": 1, "reason": "Integration fixture declined"}, manager, "POST")
+    if status != 200 or rejected["status"] != "REJECTED":
+        raise RuntimeError("Real OIDC manager could not reject their current step")
+    if request_json(resource + "/cancel", {"version": 2}, employee, "POST")[0] != 409:
+        raise RuntimeError("A terminal request allowed another transition")
+    print("PASS real OIDC draft/replay/submit/manager-reject/history and foreign-company/private-draft/admin denials", flush=True)
+    return {"requestId": created["id"], "createReplay": True, "submitRejectHistory": True, "scopeDenials": True}
