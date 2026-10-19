@@ -1,6 +1,6 @@
 # ProcureFlow implementation plan
 
-Status: **P0–P3 accepted after independent review and hosted verification; P4 locally accepted, publication/hosted verification pending; early P5 notification panel accepted; remaining P5–P7 work pending**.
+Status: **P0–P4 accepted after independent review and hosted verification; early P5 notification panel accepted; remaining P5–P7 work pending**.
 
 Prepared: 2026-10-17. This file is the task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md).
 
@@ -81,7 +81,7 @@ Historical evidence identifies the primary implementer as M, bounded contributor
 
 ## Phases, dependencies and acceptance
 
-P0–P3 are complete; P4 is locally accepted with its publication/hosted gate pending; the early P5 notification panel is accepted and remaining P5–P7 work is pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
+P0–P4 are complete; the early P5 notification panel is accepted and remaining P5–P7 work is pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
 
 ### P0 — Reproducible foundation and compatibility gate
 
@@ -624,6 +624,14 @@ Readiness-relative observed completion: worker **2.158s**, broker **2.107s**, SM
 M accepts **P4.1–P4.4 locally**, after source/security review, corrective-diff inspection, independent **237-case Java verification**, **20 verifier tests**, real seven-service evidence and operator-document review. No open blocking finding remains for this scope. SMTP acceptance-before-save duplicates remain an explicit at-least-once limitation; unknown malformed raw bodies cannot be reconstructed from diagnostic hashes. Existing panel browser evidence is not relabeled as a new full broker-to-rendered-browser journey. Remaining P5 product screens, committed P6 browser suite and P7 handoff/cloud work are not accepted. Final staged privacy checks, publication and hosted verification must still pass before final P4 phase acceptance.
 
 Publication preparation: M inspected the actual staged 61-path diff (58 implementation/test/infrastructure paths plus the three central documents), verified all executable bytes against the tested manifest and checked environment/key/report/private-instruction ignores. The unrelated unstaged file remains excluded. Redacted prospective-file and staged Gitleaks scans found no leaks; no generated reports, local fixture credentials, dependencies or private instructions are staged. Normal commit/push and the exact-revision hosted run follow; no PR, deployment, paid service or additional storage is introduced.
+
+P4 publication: the reviewed 61-path slice was committed as `2da10b8ea1afe83e4e2a12f56bee14d64073d770` and normally pushed to `main`. M verified GitHub's commit API and all 58 tested implementation/test/infrastructure blobs against the final manifest; the commit exactly matched the inspected staged patch. Final staged and one-commit-range redacted Gitleaks scans found no leaks. The unrelated local modification remains uncommitted. [Hosted run 39267034263](https://github.com/kemselcuk/procureflow/actions/runs/39267034263) was observed in progress on that exact revision; its exit-status watcher retains output in `target/p4-hosted-watch.log`. No hosted pass or final P4 acceptance is inferred before completion.
+
+#### Hosted P4 acceptance
+
+[Run 39267034263](https://github.com/kemselcuk/procureflow/actions/runs/39267034263) completed successfully on exact revision `2da10b8ea1afe83e4e2a12f56bee14d64073d770`; the exit-status watcher exited 0. M fetched completed metadata/full logs and inspected actual outputs for all three jobs. Java 21 passed **133 app + 104 worker = 237 backend cases**, zero failures/errors/skips, including the canonical-read/raw-transient replay regression. The frontend passed **78 Angular tests**, npm audit with no reported vulnerabilities, typecheck and production build. The container job passed **20 Python verifier tests**, fresh image builds, seven-service health, real Keycloak/business journeys and all eight notification cases: **15 events, 16 in-app, 16 SENT emails, 2 skips**, queue drained and exact fixture cleanup. Retained metadata/logs: `target/github-ci-39267034263.{json,log}`; watcher output: `target/p4-hosted-watch.log`.
+
+M accepts **P4.1–P4.4 and the P4 exit gate locally and on hosted CI**. The runtime/source/test snapshot is the same independently reviewed candidate; this is not a rendered full-product browser, external email provider, HA, throughput or exactly-once SMTP claim. The stated malformed-body reconstruction and SMTP acceptance-before-save limitations remain. Full P5 screens, committed P6 browser journeys and P7 handoff remain pending; no cloud deployment occurred.
 
 #### P4 notification API candidate
 
