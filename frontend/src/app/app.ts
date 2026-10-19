@@ -2,6 +2,7 @@ import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { SystemInfo, SystemStatus } from './system-status';
 import { SessionPanel } from './session-panel';
+import { NotificationsPanel } from './notifications/notifications-panel';
 
 type ConnectionState =
   | { kind: 'loading' }
@@ -11,7 +12,7 @@ type ConnectionState =
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [SessionPanel],
+  imports: [SessionPanel, NotificationsPanel],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

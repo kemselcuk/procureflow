@@ -10,7 +10,9 @@ The [P4 database foundation](docs/PLAN.md#p4-execution-record) is separately rev
 
 The notification API is independently reviewed and locally/hosted verified with **133 backend tests**: own-notification list/read and company-admin backlog counts. [Hosted run 39161302004](https://github.com/kemselcuk/procureflow/actions/runs/39161302004) passed on revision `4b85a61`, together with 14 Angular tests and Compose/Keycloak regression. API tests seed delivery records rather than proving message consumption. See [API evidence](docs/PLAN.md#p4-notification-api-candidate).
 
-The outbox relay is separately reviewed and locally accepted after **156 combined backend tests** and six-service Compose/Keycloak regression. It publishes persistent events with mandatory routing, confirms, fenced leases and bounded retries/quarantine; consumer materialization and SMTP remain unimplemented. Hosted relay verification and live notification-panel/API/OIDC acceptance are pending. See [relay evidence and limits](docs/PLAN.md#p4-relay-candidate-review-pending).
+The outbox relay is separately reviewed and locally/hosted accepted: [run 39165504508](https://github.com/kemselcuk/procureflow/actions/runs/39165504508), revision `5500316`, passed **156 combined backend tests**, **14 Angular tests** and six-service Compose/Keycloak regression. It publishes persistent events with mandatory routing, confirms, fenced leases and bounded retries/quarantine; consumer materialization and SMTP remain under review and are not integrated. See [relay evidence and limits](docs/PLAN.md#p4-relay-candidate-review-pending).
+
+The notification-panel candidate is locally accepted against the real API and Keycloak: **78 Angular tests**, typecheck/build, actual browser login/read/token-refresh/logout and already-open-panel revocation checks passed. It uses explicitly seeded notification fixtures, not a running consumer; no broker-to-panel or email delivery is claimed. The published relay run's 14 Angular tests do not include this candidate. See [panel evidence and limits](docs/PLAN.md#panel-live-apioidc-evidence-review-bounded-acceptance).
 
 ## Project documents
 

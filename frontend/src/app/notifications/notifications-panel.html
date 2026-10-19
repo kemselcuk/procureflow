@@ -1,0 +1,89 @@
+@if (state().kind !== 'hidden') {
+  <section class="notifications" aria-labelledby="notifications-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">IN-APP DELIVERY</p>
+        <h2 id="notifications-title">Notifications</h2>
+      </div>
+      @if (listed()) {
+        <button type="button" class="secondary" (click)="refresh()">Refresh</button>
+      }
+    </div>
+
+    @if (writeError(); as message) {
+      <div class="state error action-error" role="alert">
+        <p>{{ message }}</p>
+        <button type="button" class="secondary" (click)="refresh()">Reload list</button>
+      </div>
+    }
+
+    @if (listed(); as list) {
+      @if (list.items.length === 0) {
+        <p class="state" role="status" aria-live="polite">
+          You have no notifications yet. Updates about your requests will appear here once they are delivered.
+        </p>
+      } @else {
+        <ul class="list" aria-label="Your notifications">
+          @for (item of list.items; track item.id) {
+            <li class="item" tabindex="-1" [attr.data-notification-id]="item.id">
+              <div class="item-head">
+                <h3>{{ label(item.eventType) }}</h3>
+                <span class="badge" [class.unread]="item.readAt === null" [class.read]="item.readAt !== null">
+                  {{ item.readAt === null ? 'Unread' : 'Read' }}
+                </span>
+              </div>
+              <dl class="meta">
+                <div>
+                  <dt>Occurred</dt>
+                  <dd><time [attr.datetime]="item.occurredAt">{{ formatTimestamp(item.occurredAt) }}</time></dd>
+                </div>
+                @if (item.readAt; as readAt) {
+                  <div>
+                    <dt>Read</dt>
+                    <dd><time [attr.datetime]="readAt">{{ formatTimestamp(readAt) }}</time></dd>
+                  </div>
+                }
+              </dl>
+              @if (item.readAt === null) {
+                <button
+                  type="button"
+                  class="read-action"
+                  [disabled]="isPending(item.id)"
+                  [attr.aria-label]="'Mark as read: ' + label(item.eventType)"
+                  (click)="markRead(item)"
+                >
+                  {{ isPending(item.id) ? 'Marking as read…' : 'Mark as read' }}
+                </button>
+              }
+            </li>
+          }
+        </ul>
+      }
+      <div class="pager">
+        <p class="count" role="status" aria-live="polite">
+          {{ list.total }} {{ list.total === 1 ? 'notification' : 'notifications' }} · page {{ list.page + 1 }} of
+          {{ pageCount(list) }}
+        </p>
+        <div class="pager-actions">
+          <button type="button" class="secondary" (click)="previousPage()" [disabled]="list.page === 0">
+            Previous page
+          </button>
+          <button type="button" class="secondary" (click)="nextPage()" [disabled]="!hasNext(list)">Next page</button>
+        </div>
+      </div>
+    } @else if (state().kind === 'loading') {
+      <p class="state" role="status" aria-live="polite">Loading notifications…</p>
+    } @else if (state().kind === 'forbidden') {
+      <div class="state error" role="alert">
+        <p>Notifications are unavailable for this account.</p>
+        <p class="hint">An active company membership is required. Contact your company administrator.</p>
+        <button type="button" class="secondary" (click)="refresh()">Check again</button>
+      </div>
+    } @else {
+      <div class="state error" role="alert">
+        <p>{{ errorMessage() }}</p>
+        <button type="button" class="secondary" (click)="refresh()">Try again</button>
+      </div>
+    }
+  </section>
+}
