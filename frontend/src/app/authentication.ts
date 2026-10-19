@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, InjectionToken, signal } from '@angular/core';
 import Keycloak, { KeycloakConfig } from 'keycloak-js';
 import { firstValueFrom } from 'rxjs';
+import { NavigationIntent } from './workspace/navigation-intent';
 
 export const KEYCLOAK_FACTORY = new InjectionToken<(config: KeycloakConfig) => Keycloak>('KEYCLOAK_FACTORY', {
   providedIn: 'root', factory: () => (config) => new Keycloak(config),
@@ -19,13 +20,19 @@ export interface MemberProfile {
 export class Authentication {
   private readonly http = inject(HttpClient);
   private readonly factory = inject(KEYCLOAK_FACTORY);
+  private readonly navigationIntent = inject(NavigationIntent);
   private keycloak?: Keycloak;
   private initialization?: Promise<void>;
   readonly state = signal<'starting' | 'anonymous' | 'authenticated' | 'forbidden' | 'error'>('starting');
   readonly member = signal<MemberProfile | null>(null);
 
   initialize(): Promise<void> {
-    this.initialization ??= this.start();
+    if (this.initialization === undefined) {
+      // Capture before keycloak-js can replace the address with its exact root callback. Only a
+      // bounded, whitelisted internal pathname is written; query, hash and credentials never are.
+      this.navigationIntent.capture(window.location.pathname);
+      this.initialization = this.start();
+    }
     return this.initialization;
   }
 
@@ -40,7 +47,7 @@ export class Authentication {
       const realm = issuer.pathname.slice(marker + '/realms/'.length);
       if (!realm || realm.includes('/') || issuer.search || issuer.hash) throw new Error('Invalid OIDC realm');
       this.keycloak = this.factory({ url: issuer.origin + issuer.pathname.slice(0, marker), realm, clientId: configuration.clientId });
-      this.keycloak.onAuthLogout = () => { this.member.set(null); this.state.set('anonymous'); };
+      this.keycloak.onAuthLogout = () => { this.navigationIntent.clear(); this.member.set(null); this.state.set('anonymous'); };
       this.keycloak.onTokenExpired = () => { void this.accessToken(); };
       const authenticated = await this.keycloak.init({
         onLoad: 'check-sso', pkceMethod: 'S256', flow: 'standard', checkLoginIframe: false,
@@ -70,6 +77,7 @@ export class Authentication {
       return this.keycloak.token;
     } catch {
       this.keycloak.clearToken();
+      this.navigationIntent.clear();
       this.member.set(null);
       this.state.set('anonymous');
       return undefined;
@@ -82,6 +90,8 @@ export class Authentication {
   }
 
   async logout(): Promise<void> {
+    // The pending return target belongs to this signed-in session and must not survive it.
+    this.navigationIntent.clear();
     try { await this.keycloak?.logout({ redirectUri: window.location.origin + '/' }); }
     catch { this.state.set('error'); }
   }

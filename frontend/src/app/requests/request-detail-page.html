@@ -1,0 +1,335 @@
+@switch (detail().kind) {
+  @case ('loading') {
+    <section class="page" aria-labelledby="request-detail-title">
+      <p class="eyebrow">PURCHASE REQUEST</p>
+      <h1 id="request-detail-title">Request details</h1>
+      <p class="state" role="status" aria-live="polite">Loading the request and its timeline…</p>
+    </section>
+  }
+  @case ('not-found') {
+    <section class="page" aria-labelledby="request-detail-title">
+      <p class="eyebrow">PURCHASE REQUEST</p>
+      <h1 id="request-detail-title">Request not found</h1>
+      <div class="state error" role="alert">
+        <p>{{ notFoundMessage() }}</p>
+        <p class="hint">No request content is shown for an address that is outside your current company.</p>
+      </div>
+      <a routerLink="/requests">Back to my requests</a>
+    </section>
+  }
+  @case ('forbidden') {
+    <section class="page" aria-labelledby="request-detail-title">
+      <p class="eyebrow">PURCHASE REQUEST</p>
+      <h1 id="request-detail-title">Request unavailable</h1>
+      <div class="state error" role="alert">
+        <p>{{ forbiddenMessage() }}</p>
+      </div>
+      <a routerLink="/requests">Back to my requests</a>
+    </section>
+  }
+  @case ('error') {
+    <section class="page" aria-labelledby="request-detail-title">
+      <p class="eyebrow">PURCHASE REQUEST</p>
+      <h1 id="request-detail-title">Request details</h1>
+      <div class="state error" role="alert">
+        <p>{{ detailFailure()?.message }}</p>
+        <button type="button" (click)="retryDetail()">Try again</button>
+      </div>
+      <a routerLink="/requests">Back to my requests</a>
+    </section>
+  }
+  @case ('ready') {
+    @if (request(); as request) {
+      <section class="page" aria-labelledby="request-detail-title">
+        <header class="page-head">
+          <div>
+            <p class="eyebrow">PURCHASE REQUEST</p>
+            <h1 id="request-detail-title">{{ request.title }}</h1>
+            <p class="submeta">
+              <span class="badge status-{{ request.status }}">{{ label(request.status) }}</span>
+              <strong>{{ amountText(request.amount) }}</strong>
+              <span>Version {{ request.version }}</span>
+            </p>
+          </div>
+          <a routerLink="/requests">Back to my requests</a>
+        </header>
+
+        @if (notice(); as notice) {
+          <div class="notice" role="status" aria-live="polite">{{ notice }}</div>
+        }
+
+        <section class="summary" aria-labelledby="summary-title">
+          <h2 id="summary-title">Request</h2>
+          <dl class="grid">
+            <div>
+              <dt>Requester</dt>
+              <dd>{{ isOwner() ? 'You' : 'Member ' + shortId(request.requesterIdentityId) }}</dd>
+            </div>
+            <div>
+              <dt>Department</dt>
+              <dd>{{ departmentLabel() }}</dd>
+            </div>
+            <div>
+              <dt>Currency</dt>
+              <dd>{{ request.currency }}</dd>
+            </div>
+            <div>
+              <dt>Created (UTC)</dt>
+              <dd><time [attr.datetime]="request.createdAt">{{ instant(request.createdAt) }}</time></dd>
+            </div>
+            <div>
+              <dt>Updated (UTC)</dt>
+              <dd><time [attr.datetime]="request.updatedAt">{{ instant(request.updatedAt) }}</time></dd>
+            </div>
+            <div>
+              <dt>Submitted (UTC)</dt>
+              <dd>
+                @if (request.submittedAt) {
+                  <time [attr.datetime]="request.submittedAt">{{ instant(request.submittedAt) }}</time>
+                } @else {
+                  Not submitted
+                }
+              </dd>
+            </div>
+            <div>
+              <dt>Correlation ID</dt>
+              <dd><code>{{ request.correlationId }}</code></dd>
+            </div>
+            @if (request.approvedAt) {
+              <div>
+                <dt>Final approval (UTC)</dt>
+                <dd><time [attr.datetime]="request.approvedAt">{{ instant(request.approvedAt) }}</time></dd>
+              </div>
+            }
+            <div>
+              <dt>Final approval month</dt>
+              <dd>{{ request.budgetMonth ?? (request.status === 'APPROVED' ? 'Not returned by the server' : 'Not applicable yet') }}</dd>
+            </div>
+          </dl>
+          <div class="justification">
+            <h3>Justification</h3>
+            <p>{{ request.justification }}</p>
+          </div>
+          <p class="route-note">{{ approvalRouteNote() }}</p>
+          <p class="hint">The server checks the approval month's budget when the final step commits; the browser does not calculate budget authority.</p>
+        </section>
+
+        @if (canEditDraft()) {
+          <section class="owner-actions" aria-labelledby="owner-actions-title">
+            <h2 id="owner-actions-title">Draft actions</h2>
+            @if (!editing()) {
+              <p class="hint">
+                Drafts can be edited only by their owner while the EMPLOYEE role is active. Submitting freezes the content and
+                starts department approval.
+              </p>
+              @if (submitFailure(); as failure) {
+                <div class="state error" role="alert">
+                  <p>{{ failure.message }}</p>
+                  @if (submitNeedsReload()) {
+                    <button type="button" (click)="reloadCanonical()">Reload current request</button>
+                  }
+                </div>
+              }
+              <div class="button-row">
+                <button type="button" class="secondary" (click)="startEdit()" [disabled]="submitPending()">
+                  Edit draft
+                </button>
+                <button type="button" (click)="submitRequest()" [disabled]="submitPending() || submitNeedsReload()">
+                  {{ submitPending() ? 'Submitting…' : 'Submit for approval' }}
+                </button>
+              </div>
+              <p class="hint">Submission is explicit; creating or saving a draft does not start approval.</p>
+            } @else {
+              <form [formGroup]="editForm" (ngSubmit)="saveDraft()" novalidate>
+                <div class="field">
+                  <label for="edit-title">Title</label>
+                  <p class="hint" id="edit-title-hint">At most {{ titleMax }} characters.</p>
+                  <input
+                    id="edit-title"
+                    type="text"
+                    formControlName="title"
+                    [attr.maxlength]="titleMax"
+                    [attr.aria-invalid]="fieldInvalid('title')"
+                    aria-describedby="edit-title-hint edit-title-error"
+                  />
+                  @if (fieldInvalid('title')) {
+                    <p class="field-error" id="edit-title-error" role="alert">
+                      @if (editForm.controls.title.hasError('required') || editForm.controls.title.hasError('blank')) {
+                        Enter a title.
+                      } @else if (editForm.controls.title.hasError('maxlength')) {
+                        The title must be {{ titleMax }} characters or fewer.
+                      } @else {
+                        The title is invalid.
+                      }
+                    </p>
+                  }
+                </div>
+                <div class="field">
+                  <label for="edit-justification">Justification</label>
+                  <p class="hint" id="edit-justification-hint">At most {{ justificationMax }} characters.</p>
+                  <textarea
+                    id="edit-justification"
+                    formControlName="justification"
+                    rows="5"
+                    [attr.maxlength]="justificationMax"
+                    [attr.aria-invalid]="fieldInvalid('justification')"
+                    aria-describedby="edit-justification-hint edit-justification-error"
+                  ></textarea>
+                  @if (fieldInvalid('justification')) {
+                    <p class="field-error" id="edit-justification-error" role="alert">
+                      @if (editForm.controls.justification.hasError('required') || editForm.controls.justification.hasError('blank')) {
+                        Enter a justification.
+                      } @else if (editForm.controls.justification.hasError('maxlength')) {
+                        The justification must be {{ justificationMax }} characters or fewer.
+                      } @else {
+                        The justification is invalid.
+                      }
+                    </p>
+                  }
+                </div>
+                <div class="field">
+                  <label for="edit-amount">Amount (EUR)</label>
+                  <p class="hint" id="edit-amount-hint">
+                    Positive amount, up to 12 integer digits and 2 decimals. Invalid precision is rejected, not rounded.
+                  </p>
+                  <input
+                    id="edit-amount"
+                    type="text"
+                    inputmode="decimal"
+                    formControlName="amount"
+                    [attr.aria-invalid]="fieldInvalid('amount')"
+                    aria-describedby="edit-amount-hint edit-amount-error"
+                  />
+                  @if (fieldInvalid('amount')) {
+                    <p class="field-error" id="edit-amount-error" role="alert">
+                      @if (editForm.controls.amount.hasError('required')) {
+                        Enter an amount.
+                      } @else {
+                        Enter a positive amount with up to 12 integer digits and at most 2 decimals.
+                      }
+                    </p>
+                  }
+                </div>
+
+                @if (editFailure(); as failure) {
+                  <div class="state error" role="alert">
+                    <p>{{ failure.message }}</p>
+                    @if (editNeedsReload()) {
+                      <p class="hint">Reloading the latest request discards these unsaved edits.</p>
+                      <button type="button" (click)="reloadCanonical()">Reload latest request</button>
+                    }
+                  </div>
+                }
+
+                <div class="button-row">
+                  <button type="submit" [disabled]="editPending()">
+                    {{ editPending() ? 'Saving…' : 'Save draft' }}
+                  </button>
+                  <button type="button" class="secondary" (click)="cancelEdit()" [disabled]="editPending()">
+                    Cancel edit
+                  </button>
+                </div>
+              </form>
+            }
+          </section>
+        } @else if (isOwner() && request.status === 'DRAFT') {
+          <p class="state">
+            This draft is visible to you, but editing and submission require the active EMPLOYEE role.
+          </p>
+        }
+
+        @if (canCancel()) {
+          <section class="owner-actions" aria-labelledby="cancel-title">
+            <h2 id="cancel-title">Cancel request</h2>
+            @if (cancelFailure(); as failure) {
+              <div class="state error" role="alert">
+                <p>{{ failure.message }}</p>
+                @if (cancelNeedsReload()) {
+                  <button type="button" (click)="reloadCanonical()">Reload current request</button>
+                }
+              </div>
+            }
+            @if (!confirmCancel()) {
+              <p class="hint">Cancelling a pending request is terminal. Approved requests cannot be cancelled.</p>
+              <button type="button" class="secondary" (click)="confirmCancel.set(true)" [disabled]="cancelPending()">
+                Cancel request
+              </button>
+            } @else {
+              <div class="confirm" role="alert">
+                <p>Confirm cancellation. This action cannot be undone and the request will leave the approval inbox.</p>
+                <div class="button-row">
+                  <button type="button" class="danger" (click)="cancelRequest()" [disabled]="cancelPending()">
+                    {{ cancelPending() ? 'Cancelling…' : 'Confirm cancellation' }}
+                  </button>
+                  <button type="button" class="secondary" (click)="confirmCancel.set(false)" [disabled]="cancelPending()">
+                    Keep request
+                  </button>
+                </div>
+              </div>
+            }
+          </section>
+        } @else if (isOwner() && request.status === 'APPROVED') {
+          <p class="hint">Approved requests are terminal and cannot be cancelled or refunded in this workspace.</p>
+        }
+
+        @if (request.status === 'REJECTED' || request.status === 'CANCELLED') {
+          <p class="hint">This request is in a terminal state. No further approval or cancellation action is available.</p>
+        }
+
+        @if (request.status === 'AWAITING_DEPARTMENT_APPROVAL' || request.status === 'AWAITING_FINANCE_APPROVAL') {
+          @if (session.profile(); as profile) {
+            <app-approval-decision
+              [request]="request"
+              [profile]="profile"
+              (changed)="approveOrRejectChanged()"
+              (reload)="reloadCanonical()"
+            />
+          }
+        }
+
+        <section class="timeline" aria-labelledby="timeline-title">
+          <h2 id="timeline-title">Timeline</h2>
+          @switch (history().kind) {
+            @case ('loading') {
+              <p class="state" role="status" aria-live="polite">Loading the request timeline…</p>
+            }
+            @case ('error') {
+              <div class="state error" role="alert">
+                <p>{{ historyFailure()?.message }}</p>
+                <p class="hint">No timeline entries are shown because the timeline could not be loaded.</p>
+                <button type="button" (click)="retryHistory()">Try the timeline again</button>
+              </div>
+            }
+            @case ('ready') {
+              @if (historyEntries(); as entries) {
+                @if (entries.length === 0) {
+                  <p class="state" role="status">The server returned no timeline entries for this request.</p>
+                } @else {
+                  <ol class="history">
+                    @for (entry of entries; track entry.id) {
+                      <li>
+                        <div class="history-head">
+                          <strong>{{ historyLabel(entry.action) }}</strong>
+                          <span class="version">version {{ entry.version }}</span>
+                        </div>
+                        <p class="history-meta">
+                          <span>{{ label(entry.fromStatus ?? '') }} → {{ label(entry.toStatus) }}</span>
+                          <span>Actor: {{ entry.actorIdentityId === session.profile()?.identityId ? 'You' : 'Member ' + shortId(entry.actorIdentityId) }}</span>
+                          <span><time [attr.datetime]="entry.occurredAt">{{ instant(entry.occurredAt) }}</time></span>
+                        </p>
+                        @if (entry.reason) {
+                          <p class="reason"><strong>Reason:</strong> {{ entry.reason }}</p>
+                        }
+                        <p class="correlation">Correlation: <code>{{ entry.correlationId }}</code></p>
+                      </li>
+                    }
+                  </ol>
+                }
+              }
+            }
+          }
+        </section>
+      </section>
+    }
+  }
+}

@@ -1,0 +1,141 @@
+<section class="page" aria-labelledby="approvals-title">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">APPROVAL INBOX</p>
+      <h1 id="approvals-title">Requests awaiting your decision</h1>
+      <p class="lede">
+        Current-step requests for your managed departments or the finance step. Open a row to review the
+        canonical request before approving or rejecting it.
+      </p>
+    </div>
+  </header>
+
+  @if (notice(); as notice) {
+    <div class="notice" role="status" aria-live="polite">{{ notice }}</div>
+  }
+
+  @if (state().kind !== 'forbidden') {
+    <div class="toolbar">
+      <label for="approval-status-filter">Status</label>
+      <select id="approval-status-filter" [value]="status() ?? ''" (change)="onStatusChange($event)">
+        <option value="">All actionable statuses</option>
+        @for (status of statuses; track status) {
+          <option [value]="status">{{ label(status) }}</option>
+        }
+      </select>
+      <button type="button" class="secondary" (click)="refresh()" [disabled]="state().kind === 'loading'">
+        Refresh
+      </button>
+    </div>
+  }
+
+  @switch (state().kind) {
+    @case ('loading') {
+      <p class="state" role="status" aria-live="polite">Loading actionable requests…</p>
+    }
+    @case ('forbidden') {
+      <div class="state error" role="alert">
+        <p>Approvals are unavailable for this account.</p>
+        <p class="hint">{{ forbiddenMessage() }}</p>
+        <button type="button" (click)="retry()">Check access again</button>
+      </div>
+    }
+    @case ('error') {
+      <div class="state error" role="alert">
+        <p>{{ failure()?.message }}</p>
+        <button type="button" (click)="retry()">Try again</button>
+      </div>
+    }
+    @case ('empty') {
+      <div class="state" role="status" aria-live="polite">
+        <p>No requests currently need your decision.</p>
+        <p class="hint">The inbox only lists current-step requests that your membership may act on.</p>
+      </div>
+    }
+    @case ('ready') {
+      @if (listed(); as page) {
+        <ul class="list" aria-label="Requests awaiting your decision">
+          @for (request of page.items; track request.id) {
+            <li class="item" [attr.data-request-id]="request.id">
+              <div class="row">
+                <div class="row-main">
+                  <h2>{{ request.title }}</h2>
+                  <p class="meta">
+                    <span class="badge status-{{ request.status }}">{{ label(request.status) }}</span>
+                    <strong>{{ amount(request.amount) }}</strong>
+                    <span>{{ departmentLabel(request) }}</span>
+                    <span><time [attr.datetime]="request.createdAt">{{ instant(request.createdAt) }}</time></span>
+                  </p>
+                </div>
+                <div class="row-actions">
+                  <button type="button" class="secondary" (click)="review(request)" [disabled]="expanded()?.id === request.id && expanded()?.state.kind === 'loading'">
+                    {{ expanded()?.id === request.id ? 'Close review' : 'Review' }}
+                  </button>
+                  <a [routerLink]="['/requests', request.id]">Open full request</a>
+                </div>
+              </div>
+
+              @if (expanded()?.id === request.id) {
+                <div class="review" aria-live="polite">
+                  @switch (expanded()?.state.kind) {
+                    @case ('loading') {
+                      <p class="state" role="status">Loading the canonical request…</p>
+                    }
+                    @case ('not-found') {
+                      <div class="state error" role="alert">
+                        <p>{{ reviewNotFound() }}</p>
+                        <button type="button" (click)="retryReview()">Try again</button>
+                      </div>
+                    }
+                    @case ('forbidden') {
+                      <div class="state error" role="alert">
+                        <p>{{ reviewForbidden() }}</p>
+                      </div>
+                    }
+                    @case ('error') {
+                      <div class="state error" role="alert">
+                        <p>{{ reviewFailure()?.message }}</p>
+                        <button type="button" (click)="retryReview()">Try again</button>
+                      </div>
+                    }
+                    @case ('ready') {
+                      @if (reviewRequest(); as request) {
+                        @if (canDecide(request)) {
+                          @if (session.profile(); as profile) {
+                            <app-approval-decision
+                              [request]="request"
+                              [profile]="profile"
+                              (changed)="decisionChanged()"
+                              (reload)="reloadReview()"
+                            />
+                          }
+                        } @else {
+                          <p class="state">
+                            This request is no longer at a step your current membership may decide. Open the full request to see
+                            its latest timeline.
+                          </p>
+                        }
+                      }
+                    }
+                  }
+                </div>
+              }
+            </li>
+          }
+        </ul>
+        <div class="pager">
+          <p class="count" role="status" aria-live="polite">
+            {{ page.total }} {{ page.total === 1 ? 'request' : 'requests' }} · page {{ page.page + 1 }} of
+            {{ pageCount(page) }}
+          </p>
+          <div class="pager-actions">
+            <button type="button" class="secondary" (click)="previousPage()" [disabled]="page.page === 0">
+              Previous page
+            </button>
+            <button type="button" class="secondary" (click)="nextPage()" [disabled]="!hasNext(page)">Next page</button>
+          </div>
+        </div>
+      }
+    }
+  }
+</section>

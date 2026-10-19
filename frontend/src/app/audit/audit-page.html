@@ -1,0 +1,108 @@
+@if (state().kind !== 'hidden') {
+  <section class="audit" aria-labelledby="audit-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">COMPANY ACCOUNTABILITY</p>
+        <h2 id="audit-title">Audit trail</h2>
+      </div>
+      @if (listed()) {
+        <button type="button" class="secondary" (click)="refresh()">Refresh</button>
+      }
+    </div>
+
+    @if (listed(); as list) {
+      @if (list.items.length === 0) {
+        <p class="state" role="status" aria-live="polite">
+          @if (list.total === 0) {
+            No audit records yet. Recorded company activity will appear here.
+          } @else {
+            This page has no audit records. Because new events can shift records between pages, use
+            the first-page action to return to the newest records.
+          }
+        </p>
+      } @else {
+        <ul class="list" aria-label="Audit records">
+          @for (entry of list.items; track entry.id) {
+            <li class="item" [attr.data-audit-id]="entry.id">
+              <div class="item-head">
+                <h3>{{ actionLabel(entry.action) }}</h3>
+                <time [attr.datetime]="entry.occurredAt">{{ formatTimestamp(entry.occurredAt) }}</time>
+              </div>
+              <dl class="meta">
+                <div>
+                  <dt>Audit ID</dt>
+                  <dd class="ref">{{ entry.id }}</dd>
+                </div>
+                <div>
+                  <dt>Entity reference</dt>
+                  <dd class="ref">{{ entry.entityId }}</dd>
+                </div>
+                <div>
+                  <dt>Actor identity</dt>
+                  <dd class="ref">{{ entry.actorIdentityId }}</dd>
+                </div>
+                <div>
+                  <dt>Actor membership</dt>
+                  <dd class="ref">{{ entry.actorMembershipId }}</dd>
+                </div>
+                <div>
+                  <dt>Correlation</dt>
+                  <dd class="ref">{{ entry.correlationId }}</dd>
+                </div>
+              </dl>
+            </li>
+          }
+        </ul>
+      }
+      <p class="hint">
+        Read-only metadata. Identifiers are plain references and do not grant access to the records
+        they point to; new events can shift page contents between loads.
+      </p>
+      <div class="pager">
+        <p class="count" role="status" aria-live="polite">
+          {{ list.total }} {{ list.total === 1 ? 'audit record' : 'audit records' }} · page {{ list.page + 1 }} of
+          {{ pageCount(list) }}
+        </p>
+        <div class="pager-actions">
+          @if (list.items.length === 0 && list.total > 0 && list.page > 0) {
+            <button type="button" class="secondary" (click)="firstPage()" [disabled]="pending()">First page</button>
+          }
+          <button type="button" class="secondary" (click)="previousPage()" [disabled]="pending() || list.page === 0">
+            Previous page
+          </button>
+          <button type="button" class="secondary" (click)="nextPage()" [disabled]="pending() || !hasNext(list)">
+            Next page
+          </button>
+        </div>
+      </div>
+    } @else if (state().kind === 'denied') {
+      <div class="state">
+        <p>Audit records are available to company administrators only.</p>
+        <p class="hint">
+          Ask a company administrator for access. The audit service also checks your current
+          membership and role on every request.
+        </p>
+      </div>
+    } @else if (state().kind === 'loading') {
+      <p class="state" role="status" aria-live="polite">Loading audit records…</p>
+    } @else if (state().kind === 'forbidden') {
+      <div class="state error" role="alert">
+        <p>Audit records are unavailable for this account.</p>
+        <p class="hint">
+          An active company membership with the COMPANY_ADMIN role is required. Contact your company
+          administrator.
+        </p>
+        <button type="button" class="secondary" (click)="retry()" [disabled]="pending()">
+          {{ pending() ? 'Checking…' : 'Check again' }}
+        </button>
+      </div>
+    } @else if (state().kind === 'error') {
+      <div class="state error" role="alert">
+        <p>{{ errorMessage() }}</p>
+        <button type="button" class="secondary" (click)="retry()" [disabled]="pending()">
+          {{ pending() ? 'Trying again…' : 'Try again' }}
+        </button>
+      </div>
+    }
+  </section>
+}

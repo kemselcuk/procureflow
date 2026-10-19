@@ -1,47 +1,91 @@
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="header">
-  <a class="brand" href="/" aria-label="ProcureFlow home"><span class="mark" aria-hidden="true">P</span> ProcureFlow</a>
+  <a class="brand" routerLink="/requests" aria-label="ProcureFlow home"><span class="mark" aria-hidden="true">P</span> ProcureFlow</a>
+  <nav class="nav" aria-label="Primary navigation">
+    @if (authenticated()) {
+      <a
+        routerLink="/requests"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        ariaCurrentWhenActive="page"
+        >My requests</a
+      >
+      @if (showNewRequest()) {
+        <a routerLink="/requests/new" routerLinkActive="active" ariaCurrentWhenActive="page">New request</a>
+      }
+      @if (showApprovals()) {
+        <a routerLink="/approvals" routerLinkActive="active" ariaCurrentWhenActive="page">Approvals</a>
+      }
+      @if (showBudgets()) {
+        <a routerLink="/budgets" routerLinkActive="active" ariaCurrentWhenActive="page">Budgets</a>
+      }
+      @if (showAdministration()) {
+        <a
+          routerLink="/administration"
+          routerLinkActive="active"
+          [routerLinkActiveOptions]="{ exact: true }"
+          ariaCurrentWhenActive="page"
+          >Administration</a
+        >
+        <a routerLink="/administration/audit" routerLinkActive="active" ariaCurrentWhenActive="page">Audit</a>
+      }
+      <a routerLink="/notifications" routerLinkActive="active" ariaCurrentWhenActive="page">Notifications</a>
+    } @else {
+      <a routerLink="/welcome" routerLinkActive="active" ariaCurrentWhenActive="page">Workspace home</a>
+    }
+  </nav>
   <span class="environment">LOCAL DEVELOPMENT</span>
 </header>
 
-<main id="main">
-  <section class="intro" aria-labelledby="title">
-    <p class="eyebrow">PURCHASE REQUESTS · APPROVALS · ACCOUNTABILITY</p>
-    <h1 id="title">Every request.<br>A clear path forward.</h1>
-    <p class="lede">A workspace for responsible purchasing, from the first request to the final approval.</p>
-    <div class="notice"><strong>Identity and access preview</strong><span>Local sign-in is available. Purchase requests and approvals are still in development.</span></div>
-  </section>
-
-  <app-session-panel />
-  <app-notifications-panel />
-  <section class="connection" aria-labelledby="connection-title">
-    <div>
-      <p class="eyebrow">DEVELOPMENT CHECK</p>
-      <h2 id="connection-title">Application connection</h2>
-    </div>
-    <div class="connection-detail" role="status" aria-live="polite" aria-atomic="true">
-      @switch (connection().kind) {
-        @case ('loading') { <p class="status">Connecting to the API…</p> }
-        @case ('ready') {
-          <p class="status ready"><span class="dot" aria-hidden="true"></span>Foundation API connected</p>
-          <p class="hint">This checks connectivity, not purchase-feature readiness.</p>
+<main id="main" class="main">
+  <aside class="sidebar" aria-label="Session and connection">
+    @if (auth.state() === 'authenticated' && auth.member()) {
+      <section class="account" aria-labelledby="account-title">
+        <h2 id="account-title">Your workspace</h2>
+        <p><strong>{{ accountCompany() }}</strong> · {{ accountDepartment() }}</p>
+        <p class="roles">{{ roleNames() }}</p>
+        @if (session.state() === 'loading') {
+          <p class="hint" role="status" aria-live="polite">Checking current access…</p>
+        } @else if (session.state() === 'error' || session.state() === 'forbidden') {
+          <p class="hint">{{ session.errorMessage() }}</p>
         }
-        @case ('error') {
-          <p class="status">The foundation API is unavailable.</p>
-          <p class="hint">Start the local backend, then try again.</p>
-        }
-      }
-    </div>
-    <button type="button" (click)="loadStatus()" [disabled]="connection().kind === 'loading'">Check connection</button>
-  </section>
+        <p class="hint">Company scope, roles and approval authority always come from the current server membership.</p>
+        <button type="button" class="secondary" (click)="signOut()" [disabled]="signingOut()">
+          {{ signingOut() ? 'Signing out…' : 'Sign out' }}
+        </button>
+      </section>
+    } @else {
+      <app-session-panel />
+    }
 
-  <section class="roadmap" aria-labelledby="roadmap-title">
-    <div class="section-heading"><h2 id="roadmap-title">What comes next</h2><span>PLANNED FEATURES</span></div>
-    <div class="cards">
-      <article><span class="step">01 / REQUEST</span><h3>Start with the details</h3><p>Create a purchase request with an amount and a clear justification.</p></article>
-      <article><span class="step">02 / REVIEW</span><h3>The right people, in order</h3><p>Department review first. A separate finance approver for amounts over €1,000.</p></article>
-      <article><span class="step">03 / TRACE</span><h3>Decisions with a history</h3><p>Follow the approval timeline and the final approval month's budget usage.</p></article>
-    </div>
-  </section>
-  <footer>Fictional budgets. No real payments. <a href="/v3/api-docs">OpenAPI specification</a></footer>
+    <section class="connection" aria-labelledby="connection-title">
+      <div>
+        <p class="eyebrow">DEVELOPMENT CHECK</p>
+        <h2 id="connection-title">Application connection</h2>
+      </div>
+      <div class="connection-detail" role="status" aria-live="polite" aria-atomic="true">
+        @switch (connection().kind) {
+          @case ('loading') { <p class="status">Connecting to the API…</p> }
+          @case ('ready') {
+            <p class="status ready"><span class="dot" aria-hidden="true"></span>Foundation API connected</p>
+            <p class="hint">This checks connectivity, not purchase-feature readiness.</p>
+          }
+          @case ('error') {
+            <p class="status">The foundation API is unavailable.</p>
+            <p class="hint">Start the local backend, then try again.</p>
+          }
+        }
+      </div>
+      <button type="button" (click)="loadStatus()" [disabled]="connection().kind === 'loading'">Check connection</button>
+    </section>
+  </aside>
+
+  <div class="route">
+    <router-outlet />
+  </div>
 </main>
+
+<footer>
+  <span>Fictional budgets. No real payments.</span>
+  <a href="/v3/api-docs">OpenAPI specification</a>
+</footer>

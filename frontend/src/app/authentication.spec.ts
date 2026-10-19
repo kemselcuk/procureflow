@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import Keycloak from 'keycloak-js';
 import { Authentication, KEYCLOAK_FACTORY } from './authentication';
 import { authInterceptor } from './auth-interceptor';
+import { NAVIGATION_INTENT_STORAGE_KEY } from './workspace/navigation-intent';
 
 const profile = { identityId: 'identity', companyId: 'company', companyName: 'Larkvane', departmentName: 'engineering', roles: ['EMPLOYEE'] };
 
@@ -24,7 +25,12 @@ describe('Authentication lifecycle', () => {
     http = TestBed.inject(HttpTestingController);
     auth = TestBed.inject(Authentication);
   });
-  afterEach(() => { http.verify(); vi.restoreAllMocks(); });
+  afterEach(() => {
+    http.verify();
+    vi.restoreAllMocks();
+    window.history.replaceState(window.history.state, '', '/');
+    window.sessionStorage.clear();
+  });
 
   async function start(): Promise<Promise<void>[]> {
     const pending = auth.initialize();
@@ -75,6 +81,47 @@ describe('Authentication lifecycle', () => {
     http.expectOne('/api/identities/self').flush({ id: 'identity' }); await Promise.resolve();
     http.expectOne('/api/me').flush({ companyId: 'not-a-profile' }); await pending;
     expect(auth.state()).toBe('error'); expect(auth.member()).toBeNull();
+  });
+
+  it('initializes the SDK adapter exactly once for concurrent callers', async () => {
+    const first = auth.initialize();
+    const second = auth.initialize();
+    http.expectOne('/api/auth/config').flush({ issuer: 'http://localhost:8180/realms/procureflow', clientId: 'procureflow-web' });
+    await Promise.resolve(); await Promise.resolve();
+    expect(adapter.init).toHaveBeenCalledTimes(1);
+    http.expectOne('/api/identities/self').flush({ id: 'identity' }); await Promise.resolve();
+    http.expectOne('/api/me').flush(profile);
+    await Promise.all([first, second]);
+    expect(adapter.init).toHaveBeenCalledTimes(1);
+    expect(auth.state()).toBe('authenticated');
+  });
+
+  it('captures only a validated deep path before the SDK redirect and clears it on logout', async () => {
+    const requestId = '0f0e0d0c-0b0a-4908-8706-050403020100';
+    window.history.replaceState(window.history.state, '', `/requests/${requestId}`);
+    const [pending] = await start();
+    const stored = window.sessionStorage.getItem(NAVIGATION_INTENT_STORAGE_KEY);
+    expect(stored).not.toBeNull();
+    expect(stored).toContain(`/requests/${requestId}`);
+    expect(stored).not.toContain('token');
+    expect(stored).not.toContain('code');
+    http.expectOne('/api/identities/self').flush({ id: 'identity' }); await Promise.resolve();
+    http.expectOne('/api/me').flush(profile); await pending;
+    await auth.logout();
+    expect(adapter.logout).toHaveBeenCalledWith({ redirectUri: window.location.origin + '/' });
+    expect(window.sessionStorage.getItem(NAVIGATION_INTENT_STORAGE_KEY)).toBeNull();
+  });
+
+  it('clears a pending deep-link intent when Keycloak reports an external logout', async () => {
+    const requestId = '0f0e0d0c-0b0a-4908-8706-050403020100';
+    window.history.replaceState(window.history.state, '', `/requests/${requestId}`);
+    const [pending] = await start();
+    http.expectOne('/api/identities/self').flush({ id: 'identity' }); await Promise.resolve();
+    http.expectOne('/api/me').flush(profile); await pending;
+    expect(window.sessionStorage.getItem(NAVIGATION_INTENT_STORAGE_KEY)).not.toBeNull();
+    (adapter as unknown as { onAuthLogout?: () => void }).onAuthLogout?.();
+    expect(window.sessionStorage.getItem(NAVIGATION_INTENT_STORAGE_KEY)).toBeNull();
+    expect(auth.state()).toBe('anonymous');
   });
 });
 

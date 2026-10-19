@@ -1,0 +1,418 @@
+<section class="administration" aria-labelledby="administration-title">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">COMPANY CONFIGURATION</p>
+      <h2 id="administration-title">Company administration</h2>
+    </div>
+    @if (companyName()) {
+      <p class="scope">{{ companyName() }}</p>
+    }
+    @if (session.state() === 'ready' && session.profile() !== null && isAdmin() &&
+      state() !== 'forbidden' && state() !== 'session-expired' && state() !== 'access-changed') {
+      <button type="button" class="secondary" (click)="reload()" [disabled]="state() === 'loading'">
+        Refresh data
+      </button>
+    }
+  </div>
+
+  <p class="intro">
+    This screen manages departments, membership links, roles and manager assignments for the company selected by the
+    backend from your validated membership. There is no company selector. Company administrators have no implicit
+    purchase or approval authority, and the API remains authoritative for every action.
+  </p>
+
+  @switch (state()) {
+    @case ('starting') {
+      <p class="state" role="status" aria-live="polite">Checking your sign-in…</p>
+    }
+    @case ('signed-out') {
+      <div class="state panel">
+        <p>Sign in with an active company membership to continue.</p>
+        <button type="button" (click)="auth.login()">Sign in</button>
+      </div>
+    }
+    @case ('restricted') {
+      <div class="state panel" role="status" aria-live="polite">
+        <p>Company administration is restricted to company administrators.</p>
+        <p class="hint">
+          Your current membership does not include COMPANY_ADMIN, so this component did not request the privileged
+          membership list. No company administration data is shown.
+        </p>
+      </div>
+    }
+    @case ('session-expired') {
+      <div class="state error" role="alert">
+        <p>Your session is no longer valid. All privileged administration data has been cleared.</p>
+        <button type="button" class="secondary" (click)="checkSession()">Check session</button>
+      </div>
+    }
+    @case ('forbidden') {
+      <div class="state error" role="alert">
+        <p>Company administration access is unavailable for your current membership or roles.</p>
+        <p class="hint">
+          All membership and department rows were cleared. Backend authorization, not this screen, decides access.
+        </p>
+        <button type="button" class="secondary" (click)="retryAccess()">Check access</button>
+      </div>
+    }
+    @case ('access-changed') {
+      <div class="state error" role="alert">
+        <p>Your own administrator membership may have changed. All privileges and forms were cleared.</p>
+        <p class="hint">
+          Check your session and sign in again before reopening administration. The screen does not retain a stale
+          administrator snapshot.
+        </p>
+        <button type="button" class="secondary" (click)="checkSession()">Check session</button>
+      </div>
+    }
+    @default {
+      @if (state() === 'loading') {
+        <p class="state" role="status" aria-live="polite">Loading scoped departments and memberships…</p>
+      } @else if (state() === 'error') {
+        <div class="state error" role="alert">
+          <p>Administration data could not be loaded.</p>
+          <p class="hint">Your form drafts are preserved. Check the local API connection and try again.</p>
+          <button type="button" class="secondary" (click)="reload()">Try again</button>
+        </div>
+      }
+
+      <section class="subsection" aria-labelledby="departments-title">
+        <div class="subsection-heading">
+          <h3 id="departments-title">Departments</h3>
+          <span>{{ departments().length }} in scope</span>
+        </div>
+        <p class="hint">
+          Names come from the scoped directory endpoint. Creation is limited to your validated company; duplicate names
+          are decided by the backend.
+        </p>
+
+        @if (departments().length > 0 && state() !== 'loading' && state() !== 'error') {
+          <ul class="department-list" aria-label="Scoped departments">
+            @for (department of departments(); track department.id) {
+              <li>
+                <strong>{{ department.name }}</strong>
+                <code>{{ department.id }}</code>
+              </li>
+            }
+          </ul>
+        } @else if (state() !== 'loading') {
+          <p class="state small">No scoped departments are available yet.</p>
+        }
+
+        <form class="create-form" [formGroup]="departmentForm" (ngSubmit)="createDepartment()" novalidate>
+          <div class="field">
+            <label for="department-name">New department name</label>
+            <input
+              id="department-name"
+              type="text"
+              maxlength="200"
+              autocomplete="off"
+              formControlName="name"
+              [attr.aria-invalid]="departmentNameError() === null ? null : 'true'"
+              aria-describedby="department-name-hint department-name-error"
+            />
+            <p id="department-name-hint" class="hint">Nonblank, at most 200 characters.</p>
+            @if (departmentNameError(); as message) {
+              <p id="department-name-error" class="field-error">{{ message }}</p>
+            } @else {
+              <p id="department-name-error" class="sr-only">Enter a nonblank name of at most 200 characters.</p>
+            }
+          </div>
+          <button type="submit" [disabled]="departmentPending() || departmentAmbiguous()">
+            {{ departmentPending() ? 'Creating department…' : 'Create department' }}
+          </button>
+        </form>
+
+        @if (departmentStatus(); as status) {
+          <div
+            class="write-status"
+            [class.error]="status.kind === 'error'"
+            [attr.role]="status.kind === 'error' ? 'alert' : 'status'"
+            aria-live="polite"
+            tabindex="-1"
+          >
+            <p>{{ status.message }}</p>
+            @if (status.needsReload) {
+              <button type="button" class="secondary" (click)="reload()">Refresh department list</button>
+            }
+          </div>
+        }
+      </section>
+
+      <section class="subsection" aria-labelledby="memberships-title">
+        <div class="subsection-heading">
+          <h3 id="memberships-title">Memberships</h3>
+          <span>{{ memberships().length }} linked</span>
+        </div>
+        <p class="hint">
+          The membership API exposes identity, department and membership UUIDs only. This screen does not invent
+          usernames or emails and never shows an identity directory. The backend limits this list to your company.
+        </p>
+
+        @if (memberships().length > 0 && state() === 'ready') {
+          <ul class="membership-list" aria-label="Company memberships">
+            @for (membership of memberships(); track membership.id) {
+              <li class="membership-card">
+                <div class="card-heading">
+                  <h4>Identity <code>{{ membership.identityId }}</code></h4>
+                  <span class="badge" [class.inactive]="!membership.active">
+                    {{ membership.active ? 'Active' : 'Inactive' }}
+                  </span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Department</dt>
+                    <dd>{{ departmentName(membership.departmentId) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Roles</dt>
+                    <dd>{{ roleLabels(membership.roles) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Managed departments</dt>
+                    <dd>{{ managedNames(membership.managedDepartmentIds) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Version</dt>
+                    <dd>{{ membership.version }}</dd>
+                  </div>
+                </dl>
+                <button
+                  type="button"
+                  class="secondary"
+                  (click)="selectMembership(membership.id)"
+                  [disabled]="editPending()"
+                >
+                  Edit this membership
+                </button>
+              </li>
+            }
+          </ul>
+        } @else if (state() === 'empty') {
+          <p class="state empty" role="status" aria-live="polite">
+            No memberships have been linked yet. Link only an identity that has already signed in and self-registered.
+          </p>
+        }
+
+        <form class="create-form" [formGroup]="createForm" (ngSubmit)="createMembership()" novalidate>
+          <fieldset [disabled]="createPending() || createAmbiguous()">
+            <legend>Link an existing identity</legend>
+            <p class="hint">
+              The person must first sign in once so their identity record exists. This form links that registered
+              identity; it does not create an account or password, and it cannot list foreign identities.
+            </p>
+
+            <div class="field">
+              <label for="create-identity">Registered identity UUID</label>
+              <input
+                id="create-identity"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                formControlName="identityId"
+                [attr.aria-invalid]="identityError() === null ? null : 'true'"
+                aria-describedby="create-identity-hint create-identity-error"
+              />
+              <p id="create-identity-hint" class="hint">
+                Copy the identity UUID returned to that person after their first sign-in.
+              </p>
+              @if (identityError(); as message) {
+                <p id="create-identity-error" class="field-error">{{ message }}</p>
+              } @else {
+                <p id="create-identity-error" class="sr-only">Enter a valid identity UUID.</p>
+              }
+            </div>
+
+            <div class="field">
+              <label for="create-department">Department</label>
+              <select
+                id="create-department"
+                formControlName="departmentId"
+                [attr.aria-invalid]="createDepartmentError() === null ? null : 'true'"
+              >
+                <option value="">Select a department</option>
+                @for (department of departments(); track department.id) {
+                  <option [value]="department.id">{{ department.name }}</option>
+                }
+              </select>
+              @if (createDepartmentError(); as message) {
+                <p class="field-error">{{ message }}</p>
+              }
+            </div>
+
+            <fieldset class="choice-group" formGroupName="roles">
+              <legend>Roles</legend>
+              <p class="hint">Choose at least one exact role. A manager needs managed departments; a nonmanager needs none.</p>
+              @for (role of roles; track role) {
+                <label [for]="'create-role-' + role">
+                  <input [id]="'create-role-' + role" type="checkbox" [formControlName]="role" />
+                  {{ roleLabel(role) }}
+                </label>
+              }
+            </fieldset>
+
+            <fieldset class="choice-group">
+              <legend>Managed departments</legend>
+              <p class="hint">Only select these when the DEPARTMENT_MANAGER role is checked.</p>
+              @if (departments().length > 0) {
+                @for (department of departments(); track department.id) {
+                  <label [for]="'create-managed-' + department.id">
+                    <input
+                      [id]="'create-managed-' + department.id"
+                      type="checkbox"
+                      [checked]="isManaged(createForm.controls.managedDepartmentIds.value, department.id)"
+                      (change)="toggleManaged(createForm.controls.managedDepartmentIds, department.id, $event)"
+                    />
+                    {{ department.name }}
+                  </label>
+                }
+              } @else {
+                <p class="hint">No scoped departments are available.</p>
+              }
+            </fieldset>
+
+            @if (assignmentError(createForm, createAttempted()); as message) {
+              <p class="field-error" role="alert">{{ message }}</p>
+            }
+
+            <button type="submit" [disabled]="createPending() || createAmbiguous()">
+              {{ createPending() ? 'Linking membership…' : 'Link membership' }}
+            </button>
+          </fieldset>
+        </form>
+
+        @if (createStatus(); as status) {
+          <div
+            class="write-status"
+            [class.error]="status.kind === 'error'"
+            [attr.role]="status.kind === 'error' ? 'alert' : 'status'"
+            aria-live="polite"
+            tabindex="-1"
+          >
+            <p>{{ status.message }}</p>
+            @if (status.needsReload) {
+              <button type="button" class="secondary" (click)="reload()">Refresh membership list</button>
+            }
+          </div>
+        }
+      </section>
+
+      <section class="subsection" aria-labelledby="edit-title">
+        <div class="subsection-heading">
+          <h3 id="edit-title">Edit or deactivate a membership</h3>
+        </div>
+        <div class="field">
+          <label for="edit-membership">Membership to edit</label>
+          <select
+            id="edit-membership"
+            [value]="selectedMembershipId() ?? ''"
+            (change)="selectMembershipFromEvent($event)"
+            [disabled]="editPending()"
+          >
+            <option value="">Select a membership</option>
+            @for (membership of memberships(); track membership.id) {
+              <option [value]="membership.id">
+                Identity {{ membership.identityId }} · version {{ membership.version }} ·
+                {{ membership.active ? 'active' : 'inactive' }}
+              </option>
+            }
+          </select>
+        </div>
+
+        @if (editSource(); as source) {
+          <form class="edit-form" [formGroup]="editForm" (ngSubmit)="saveMembership()" novalidate>
+            <fieldset [disabled]="editPending()">
+              <legend>Edit membership</legend>
+              <p class="identity">Identity <code>{{ source.identityId }}</code></p>
+              <p class="hint">
+                Expected version: <strong>{{ source.version }}</strong>. It comes from the selected canonical
+                membership and is never refreshed silently after a conflict.
+              </p>
+
+              <div class="field">
+                <label for="edit-department">Department</label>
+                <select
+                  id="edit-department"
+                  formControlName="departmentId"
+                  [attr.aria-invalid]="departmentSelectionError(editForm, editAttempted()) === null ? null : 'true'"
+                >
+                  <option value="">Select a department</option>
+                  @for (department of departments(); track department.id) {
+                    <option [value]="department.id">{{ department.name }}</option>
+                  }
+                </select>
+                @if (departmentSelectionError(editForm, editAttempted()); as message) {
+                  <p class="field-error">{{ message }}</p>
+                }
+              </div>
+
+              <label class="active-toggle" for="edit-active">
+                <input id="edit-active" type="checkbox" formControlName="active" />
+                Membership active
+              </label>
+
+              <fieldset class="choice-group" formGroupName="roles">
+                <legend>Roles</legend>
+                @for (role of roles; track role) {
+                  <label [for]="'edit-role-' + role">
+                    <input [id]="'edit-role-' + role" type="checkbox" [formControlName]="role" />
+                    {{ roleLabel(role) }}
+                  </label>
+                }
+              </fieldset>
+
+              <fieldset class="choice-group">
+                <legend>Managed departments</legend>
+                @if (departments().length > 0) {
+                  @for (department of departments(); track department.id) {
+                    <label [for]="'edit-managed-' + department.id">
+                      <input
+                        [id]="'edit-managed-' + department.id"
+                        type="checkbox"
+                        [checked]="isManaged(editForm.controls.managedDepartmentIds.value, department.id)"
+                        (change)="toggleManaged(editForm.controls.managedDepartmentIds, department.id, $event)"
+                      />
+                      {{ department.name }}
+                    </label>
+                  }
+                } @else {
+                  <p class="hint">No scoped departments are available.</p>
+                }
+              </fieldset>
+
+              @if (assignmentError(editForm, editAttempted()); as message) {
+                <p class="field-error" role="alert">{{ message }}</p>
+              }
+
+              @if (editStale()) {
+                <p class="field-error" role="alert">
+                  Reload the list, then select this membership again to review the current version before saving. The
+                  original expected version and your edits are still preserved.
+                </p>
+              }
+
+              <button type="submit" [disabled]="editPending() || editStale()">
+                {{ editPending() ? 'Saving membership…' : 'Save membership' }}
+              </button>
+            </fieldset>
+          </form>
+
+          @if (editStatus(); as status) {
+            <div
+              class="write-status"
+              [class.error]="status.kind === 'error'"
+              [attr.role]="status.kind === 'error' ? 'alert' : 'status'"
+              aria-live="polite"
+              tabindex="-1"
+            >
+              <p>{{ status.message }}</p>
+              @if (status.needsReload) {
+                <button type="button" class="secondary" (click)="reload()">Reload memberships</button>
+              }
+            </div>
+          }
+        }
+      </section>
+    }
+  }
+</section>

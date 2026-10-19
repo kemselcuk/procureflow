@@ -1,0 +1,211 @@
+<section class="budgets" aria-labelledby="budgets-title">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">BUDGET CONTROL</p>
+      <h2 id="budgets-title">Monthly budgets</h2>
+    </div>
+    @if (companyName()) {
+      <p class="scope">{{ companyName() }}</p>
+    }
+    @if (session.state() === 'ready' && session.profile() !== null) {
+      <button type="button" class="secondary" (click)="reload()" [disabled]="state() === 'loading'">Refresh</button>
+    }
+  </div>
+
+  <p class="intro">
+    Final approval charges the UTC calendar month in which it is recorded. Requests above €1,000 move to a separate
+    finance approver; the budget is charged only at the final step. All amounts are fictional: there is no reservation,
+    refund or real payment. The backend calculates limit, used and remaining values.
+  </p>
+
+  @switch (state()) {
+    @case ('starting') {
+      <p class="state" role="status" aria-live="polite">Checking your sign-in…</p>
+    }
+    @case ('signed-out') {
+      <div class="state panel">
+        <p>Sign in with an active company membership to view budgets.</p>
+        <button type="button" (click)="auth.login()">Sign in</button>
+      </div>
+    }
+    @case ('session-expired') {
+      <div class="state error" role="alert">
+        <p>Your session is no longer valid. Budget data has been cleared.</p>
+        <p class="hint">Sign in again, then reopen this page.</p>
+        <button type="button" class="secondary" (click)="checkSession()">Check session</button>
+      </div>
+    }
+    @case ('forbidden') {
+      <div class="state error" role="alert">
+        <p>Budget access is unavailable for your current membership and roles.</p>
+        <p class="hint">
+          Employees can read their own department directory only. Budget lists are scoped to department managers,
+          finance approvers and company administrators; the backend remains authoritative.
+        </p>
+        <button type="button" class="secondary" (click)="retryAccess()">Check access</button>
+      </div>
+    }
+    @default {
+      <div class="filter">
+        <label for="budget-month">Budget month (UTC)</label>
+        <input
+          id="budget-month"
+          type="month"
+          min="2000-01"
+          max="9999-12"
+          [formControl]="monthControl"
+          aria-describedby="budget-month-hint"
+        />
+        <p id="budget-month-hint" class="hint">Choose a supported month from 2000-01 through 9999-12.</p>
+        @if (monthError(); as message) {
+          <p class="field-error" role="alert">{{ message }}</p>
+          <button type="button" class="secondary" (click)="useCurrentMonth()">Use current UTC month</button>
+        }
+      </div>
+
+      @if (departmentNotice(); as notice) {
+        <div class="state notice" role="status" aria-live="polite">
+          <p>{{ notice }}</p>
+          <button type="button" class="secondary" (click)="reload()">Reload scoped departments</button>
+        </div>
+      }
+
+      @if (isAdmin() && departments().length > 0 && monthError() === null) {
+        <form class="admin-form" [formGroup]="limitForm" (ngSubmit)="saveLimit()" novalidate>
+          <fieldset [disabled]="pending()">
+            <legend>Set monthly limit · company administrator</legend>
+            <p class="hint">
+              The server scopes this department to your validated company. Saving replaces only the limit; it never
+              resets usage or records a payment.
+            </p>
+
+            <div class="field">
+              <label for="limit-department">Department</label>
+              <select
+                id="limit-department"
+                formControlName="departmentId"
+                [attr.aria-invalid]="departmentError() === null ? null : 'true'"
+                aria-describedby="limit-department-error"
+              >
+                <option value="">Select a department</option>
+                @for (department of departments(); track department.id) {
+                  <option [value]="department.id">{{ department.name }}</option>
+                }
+              </select>
+              @if (departmentError(); as message) {
+                <p id="limit-department-error" class="field-error">{{ message }}</p>
+              } @else {
+                <p id="limit-department-error" class="sr-only">Select one of your scoped departments.</p>
+              }
+            </div>
+
+            <div class="field">
+              <label for="limit-amount">Limit amount for {{ monthLabel() }} (EUR)</label>
+              <input
+                id="limit-amount"
+                type="text"
+                inputmode="decimal"
+                autocomplete="off"
+                spellcheck="false"
+                formControlName="limitAmount"
+                [attr.aria-invalid]="limitError() === null ? null : 'true'"
+                aria-describedby="limit-amount-hint limit-amount-error"
+              />
+              <p id="limit-amount-hint" class="hint">
+                Zero is allowed. Use at most two decimal places and at most 12 integer digits
+                (999,999,999,999.99). The amount is validated as text and never silently rounded.
+              </p>
+              @if (limitError(); as message) {
+                <p id="limit-amount-error" class="field-error">{{ message }}</p>
+              } @else {
+                <p id="limit-amount-error" class="sr-only">Enter a nonnegative limit with at most two decimals.</p>
+              }
+            </div>
+
+            @if (selectedBudget(); as budget) {
+              <p class="recorded" role="status" aria-live="polite">
+                Recorded for {{ formatMonth(budget.month) }}: limit {{ formatMoney(budget.limitAmount) }}, used
+                {{ formatMoney(budget.usedAmount) }}, remaining {{ formatMoney(budget.remainingAmount) }} (version
+                {{ budget.version }}).
+              </p>
+            } @else if (limitForm.controls.departmentId.value) {
+              <p class="recorded" role="status" aria-live="polite">
+                No budget row is recorded for this department and month. A missing row is not zero funds; save a limit to
+                create it deliberately.
+              </p>
+            }
+
+            <button type="submit" [disabled]="pending()">
+              {{ pending() ? 'Saving limit…' : 'Save limit' }}
+            </button>
+          </fieldset>
+
+          @if (writeStatus(); as status) {
+            <div
+              class="write-status"
+              [class.error]="status.kind === 'error'"
+              [attr.role]="status.kind === 'error' ? 'alert' : 'status'"
+              aria-live="polite"
+              tabindex="-1"
+            >
+              <p>{{ status.message }}</p>
+              @if (status.needsReload) {
+                <button type="button" class="secondary" (click)="reloadBudgets()">Reload current budget</button>
+              }
+            </div>
+          }
+        </form>
+      }
+
+      @if (state() === 'loading') {
+        <p class="state" role="status" aria-live="polite">Loading budgets and scoped departments…</p>
+      } @else if (state() === 'error') {
+        <div class="state error" role="alert">
+          <p>Budgets could not be loaded for the selected month. Your selection is preserved.</p>
+          <p class="hint">Check the local API connection, then try again. No budget values are estimated locally.</p>
+          <button type="button" class="secondary" (click)="reload()">Try again</button>
+        </div>
+      } @else if (state() === 'empty') {
+        <div class="state empty" role="status" aria-live="polite">
+          <p>No budget rows were returned for {{ monthLabel() }} in your current scope.</p>
+          <p class="hint">
+            A missing row is not a zero budget and this page does not fabricate values. A department manager sees only
+            assigned departments; a company administrator can set a limit above.
+          </p>
+          <button type="button" class="secondary" (click)="reload()">Refresh</button>
+        </div>
+      } @else if (state() === 'ready') {
+        <ul class="budget-list" aria-label="Scoped department budgets">
+          @for (budget of budgets(); track budget.id) {
+            <li class="budget-card">
+              <div class="card-heading">
+                <h3>{{ departmentName(budget.departmentId) }}</h3>
+                <span class="version">v{{ budget.version }}</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Charge month (UTC calendar)</dt>
+                  <dd>
+                    <time [attr.datetime]="budget.month">{{ formatMonth(budget.month) }}</time>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Limit</dt>
+                  <dd>{{ formatMoney(budget.limitAmount) }}</dd>
+                </div>
+                <div>
+                  <dt>Used</dt>
+                  <dd>{{ formatMoney(budget.usedAmount) }}</dd>
+                </div>
+                <div>
+                  <dt>Remaining (server-calculated)</dt>
+                  <dd>{{ formatMoney(budget.remainingAmount) }}</dd>
+                </div>
+              </dl>
+            </li>
+          }
+        </ul>
+      }
+    }
+  }
+</section>

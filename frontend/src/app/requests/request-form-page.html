@@ -1,0 +1,130 @@
+<section class="page" aria-labelledby="new-request-title">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">EMPLOYEE DRAFT</p>
+      <h1 id="new-request-title">New purchase request</h1>
+      <p class="lede">
+        Save a draft first. Review it on the request page, then submit it explicitly for department approval.
+      </p>
+    </div>
+    <a routerLink="/requests">Back to my requests</a>
+  </header>
+
+  @if (sessionNotice(); as notice) {
+    <div class="notice" role="status" aria-live="polite">{{ notice }}</div>
+  }
+
+  @if (!employeeActive()) {
+    <div class="error" role="alert">
+      <p>Creating purchase requests requires the active EMPLOYEE role in your current membership.</p>
+      <p class="hint">The form was cleared for security, and draft creation stays blocked until your current membership includes the EMPLOYEE role again.</p>
+    </div>
+  }
+
+  <div class="department">
+    <span class="label">Department</span>
+    <strong>{{ departmentName() }}</strong>
+    <p>This comes from your current server membership. The request form has no department selector.</p>
+  </div>
+
+  @if (failure(); as failure) {
+    <div class="error" role="alert">
+      <p>{{ failure.message }}</p>
+      @if (retryHint(); as hint) {
+        <p class="hint">{{ hint }}</p>
+      }
+    </div>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="create()" novalidate>
+    <fieldset [disabled]="pending() || completed()">
+      <div class="field">
+        <label for="request-title">Title</label>
+        <p class="hint" id="request-title-hint">Short and specific, at most {{ titleMax }} characters.</p>
+        <input
+          id="request-title"
+          type="text"
+          formControlName="title"
+          autocomplete="off"
+          [attr.maxlength]="titleMax"
+          [attr.aria-invalid]="fieldInvalid('title')"
+          aria-describedby="request-title-hint request-title-error"
+        />
+        @if (fieldInvalid('title')) {
+          <p class="field-error" id="request-title-error" role="alert">
+            @if (form.controls.title.hasError('required') || form.controls.title.hasError('blank')) {
+              Enter a title.
+            } @else if (form.controls.title.hasError('maxlength')) {
+              The title must be {{ titleMax }} characters or fewer.
+            } @else {
+              The title is invalid.
+            }
+          </p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="request-justification">Justification</label>
+        <p class="hint" id="request-justification-hint">
+          Explain the business need, at most {{ justificationMax }} characters.
+        </p>
+        <textarea
+          id="request-justification"
+          formControlName="justification"
+          rows="6"
+          [attr.maxlength]="justificationMax"
+          [attr.aria-invalid]="fieldInvalid('justification')"
+          aria-describedby="request-justification-hint request-justification-error"
+        ></textarea>
+        @if (fieldInvalid('justification')) {
+          <p class="field-error" id="request-justification-error" role="alert">
+            @if (form.controls.justification.hasError('required') || form.controls.justification.hasError('blank')) {
+              Enter a justification.
+            } @else if (form.controls.justification.hasError('maxlength')) {
+              The justification must be {{ justificationMax }} characters or fewer.
+            } @else {
+              The justification is invalid.
+            }
+          </p>
+        }
+      </div>
+
+      <div class="field">
+        <label for="request-amount">Amount (EUR)</label>
+        <p class="hint" id="request-amount-hint">
+          Positive amount with up to 12 digits before the decimal and at most 2 decimals. Invalid precision is
+          rejected, not rounded.
+        </p>
+        <div class="money">
+          <span aria-hidden="true">€</span>
+          <input
+            id="request-amount"
+            type="text"
+            inputmode="decimal"
+            formControlName="amount"
+            autocomplete="off"
+            [attr.aria-invalid]="fieldInvalid('amount')"
+            aria-describedby="request-amount-hint request-amount-error"
+          />
+        </div>
+        @if (fieldInvalid('amount')) {
+          <p class="field-error" id="request-amount-error" role="alert">
+            @if (form.controls.amount.hasError('required')) {
+              Enter an amount.
+            } @else {
+              Enter a positive amount with up to 12 integer digits and at most 2 decimals.
+            }
+          </p>
+        }
+      </div>
+    </fieldset>
+
+    <div class="actions">
+      <button type="submit" [disabled]="pending() || completed() || !employeeActive()">
+        {{ pending() ? 'Creating draft…' : 'Create draft' }}
+      </button>
+      <a routerLink="/requests">Cancel</a>
+    </div>
+    <p class="hint">Creating a draft does not submit it. A separate submit action starts approval.</p>
+  </form>
+</section>

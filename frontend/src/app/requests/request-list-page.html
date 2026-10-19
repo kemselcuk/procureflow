@@ -1,0 +1,93 @@
+<section class="page" aria-labelledby="my-requests-title">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">EMPLOYEE VIEW</p>
+      <h1 id="my-requests-title">My purchase requests</h1>
+      <p class="lede">Drafts and submitted requests you created in the current company.</p>
+    </div>
+    @if (canCreate()) {
+      <a class="primary" routerLink="/requests/new">New request</a>
+    }
+  </header>
+
+  <div class="toolbar">
+    <label for="status-filter">Status</label>
+    <select id="status-filter" [value]="status() ?? ''" (change)="onStatusChange($event)">
+      <option value="">All statuses</option>
+      @for (status of statuses; track status) {
+        <option [value]="status">{{ label(status) }}</option>
+      }
+    </select>
+    <button type="button" class="secondary" (click)="refresh()" [disabled]="state().kind === 'loading'">
+      Refresh
+    </button>
+  </div>
+
+  @switch (state().kind) {
+    @case ('loading') {
+      <p class="state" role="status" aria-live="polite">Loading your requests…</p>
+    }
+    @case ('forbidden') {
+      <div class="state error" role="alert">
+        <p>Requests are unavailable for this account.</p>
+        <p class="hint">{{ forbiddenMessage() }}</p>
+        <button type="button" (click)="retry()">Check access again</button>
+      </div>
+    }
+    @case ('error') {
+      <div class="state error" role="alert">
+        <p>{{ failure()?.message }}</p>
+        <button type="button" (click)="retry()">Try again</button>
+      </div>
+    }
+    @case ('empty') {
+      <div class="state" role="status" aria-live="polite">
+        @if (status()) {
+          <p>No requests match this status.</p>
+          <p class="hint">Choose “All statuses” to see every request you created.</p>
+        } @else {
+          <p>You have not created any purchase requests yet.</p>
+          @if (canCreate()) {
+            <p class="hint"><a routerLink="/requests/new">Create your first draft</a> to begin.</p>
+          }
+        }
+      </div>
+      <p class="count">0 requests</p>
+    }
+    @case ('ready') {
+      @if (listed(); as page) {
+        <ul class="list" aria-label="My purchase requests">
+          @for (request of page.items; track request.id) {
+            <li class="item">
+              <div class="item-main">
+                <h2><a [routerLink]="['/requests', request.id]">{{ request.title }}</a></h2>
+                <p class="meta">
+                  <span class="badge status-{{ request.status }}">{{ label(request.status) }}</span>
+                  <span>{{ amount(request.amount) }}</span>
+                  <span>Created <time [attr.datetime]="request.createdAt">{{ instant(request.createdAt) }}</time></span>
+                </p>
+              </div>
+              <a class="open" [routerLink]="['/requests', request.id]" [attr.aria-label]="'Open request: ' + request.title">
+                Review
+              </a>
+            </li>
+          }
+        </ul>
+        <div class="pager">
+          <p class="count" role="status" aria-live="polite">
+            {{ page.total }} {{ page.total === 1 ? 'request' : 'requests' }} · page {{ page.page + 1 }} of
+            {{ pageCount(page) }}
+          </p>
+          <div class="pager-actions">
+            <button type="button" class="secondary" (click)="previousPage()" [disabled]="page.page === 0">
+              Previous page
+            </button>
+            <button type="button" class="secondary" (click)="nextPage()" [disabled]="!hasNext(page)">
+              Next page
+            </button>
+          </div>
+        </div>
+      }
+    }
+  }
+</section>

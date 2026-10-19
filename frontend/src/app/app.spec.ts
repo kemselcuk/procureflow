@@ -1,9 +1,30 @@
-import { TestBed } from '@angular/core/testing';
+import { Component, WritableSignal, signal } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router, provideRouter } from '@angular/router';
 import { App } from './app';
-import { WritableSignal, signal } from '@angular/core';
 import { Authentication, MemberProfile } from './authentication';
+import { NotificationsPage } from './workspace/notifications-page';
+import { WorkspaceSession } from './workspace/workspace-session';
+
+@Component({ standalone: true, template: '' })
+class EmptyPage {}
+
+function workspaceSessionMock() {
+  return {
+    profile: signal(null),
+    state: signal('idle'),
+    errorMessage: signal(null),
+    ownerKey: signal(null),
+    generation: signal(0),
+    isEmployee: signal(false),
+    isManager: signal(false),
+    isFinance: signal(false),
+    canReachApprovals: signal(false),
+    hasRole: () => false,
+  };
+}
 
 describe('Foundation connection boundary', () => {
   let http: HttpTestingController;
@@ -11,9 +32,19 @@ describe('Foundation connection boundary', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideHttpClient(), provideHttpClientTesting(), {
-        provide: Authentication, useValue: { initialize: async () => {}, state: signal('anonymous'), member: signal(null) },
-      }],
+      providers: [
+        provideRouter([
+          { path: 'welcome', component: EmptyPage },
+          { path: 'requests', component: EmptyPage },
+        ]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        {
+          provide: Authentication,
+          useValue: { initialize: async () => {}, state: signal('anonymous'), member: signal(null), logout: async () => {} },
+        },
+        { provide: WorkspaceSession, useValue: workspaceSessionMock() },
+      ],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -56,8 +87,9 @@ describe('Foundation connection boundary', () => {
   });
 });
 
-describe('Notifications panel mounting', () => {
+describe('Notifications route mounting', () => {
   let http: HttpTestingController;
+  let router: Router;
   let authState: WritableSignal<'starting' | 'anonymous' | 'authenticated' | 'forbidden' | 'error'>;
   let authMember: WritableSignal<MemberProfile | null>;
 
@@ -67,22 +99,48 @@ describe('Notifications panel mounting', () => {
     TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        provideRouter([
+          { path: 'welcome', component: EmptyPage },
+          { path: 'requests', component: EmptyPage },
+          { path: 'notifications', component: NotificationsPage },
+        ]),
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: Authentication, useValue: { initialize: async () => {}, state: authState, member: authMember } },
+        {
+          provide: Authentication,
+          useValue: {
+            initialize: async () => {},
+            state: authState,
+            member: authMember,
+            login: async () => {},
+            logout: async () => {},
+          },
+        },
+        { provide: WorkspaceSession, useValue: workspaceSessionMock() },
       ],
     });
     http = TestBed.inject(HttpTestingController);
+    router = TestBed.inject(Router);
   });
 
   afterEach(() => http.verify());
 
-  it('keeps the panel hidden and sends no private request for an anonymous session', async () => {
+  async function renderNotifications(): Promise<{ fixture: ComponentFixture<App>; element: HTMLElement }> {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
-    http.expectOne('/api/system').flush({ name: 'ProcureFlow', stage: 'foundation' });
+    await router.navigateByUrl('/notifications');
+    fixture.detectChanges();
     await fixture.whenStable();
-    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Notifications');
+    return { fixture, element: fixture.nativeElement as HTMLElement };
+  }
+
+  it('keeps the panel hidden and sends no private request for an anonymous session', async () => {
+    const { element } = await renderNotifications();
+    http.expectOne('/api/system').flush({ name: 'ProcureFlow', stage: 'foundation' });
+    await Promise.resolve();
+    const panel = element.querySelector('app-notifications-panel');
+    expect(panel).not.toBeNull();
+    expect(panel?.textContent).not.toContain('Notifications');
     expect(http.match((request) => request.url.startsWith('/api/notifications')).length).toBe(0);
   });
 
@@ -95,10 +153,8 @@ describe('Notifications panel mounting', () => {
       departmentName: 'engineering',
       roles: ['EMPLOYEE'],
     });
-    const fixture = TestBed.createComponent(App);
-    fixture.detectChanges();
+    const { fixture, element } = await renderNotifications();
     http.expectOne('/api/system').flush({ name: 'ProcureFlow', stage: 'foundation' });
-    await fixture.whenStable();
     const request = http.expectOne((candidate) => candidate.url === '/api/notifications');
     expect(request.request.method).toBe('GET');
     expect(request.request.params.get('page')).toBe('0');
@@ -120,11 +176,12 @@ describe('Notifications panel mounting', () => {
         },
       ],
     });
+    fixture.detectChanges();
     await fixture.whenStable();
-    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    const text = element.textContent ?? '';
     expect(text).toContain('Notifications');
     expect(text).toContain('Request approved');
     expect(text).toContain('Unread');
-    expect((fixture.nativeElement as HTMLElement).querySelector('app-notifications-panel')).not.toBeNull();
+    expect(element.querySelector('app-notifications-panel')).not.toBeNull();
   });
 });
