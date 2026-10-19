@@ -178,3 +178,7 @@ The explicit local-demo profile contains two companies, multiple departments, di
 Product architecture/transaction diagrams follow the real implementation during delivery. A demo video is not a deliverable.
 
 Created in [T3 Code](https://t3.codes).
+
+## License
+
+Released under the [MIT License](LICENSE).
