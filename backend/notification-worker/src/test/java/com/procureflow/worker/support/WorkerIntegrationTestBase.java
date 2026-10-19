@@ -47,6 +47,8 @@ public abstract class WorkerIntegrationTestBase {
         registry.add("worker.relay.retry-backoff-multiplier", () -> "2.0");
         registry.add("worker.relay.retry-backoff-max", () -> "PT2S");
         registry.add("worker.relay.poll-interval", () -> "PT1H");
+        registry.add("worker.consumer.enabled", () -> "false");
+        registry.add("worker.smtp.enabled", () -> "false");
     }
 
     @BeforeEach

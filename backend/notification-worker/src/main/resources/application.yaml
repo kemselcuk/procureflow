@@ -48,3 +48,20 @@ worker:
     retry-backoff-multiplier: 2.0
     retry-backoff-max: 5m
     poll-interval: 1s
+  smtp:
+    # Runtime flag; disable it to run relay/consumer regression without any SMTP runner.
+    enabled: ${WORKER_SMTP_ENABLED:true}
+    scheduled: true
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    lease-timeout: 30s
+    connection-timeout: 5s
+    read-timeout: 10s
+    write-timeout: 10s
+    max-attempts: 8
+    retry-backoff: 5s
+    retry-backoff-multiplier: 2.0
+    retry-backoff-max: 5m
+    poll-interval: 1s
+    work-limit: 10
+    cleanup-batch-size: 20

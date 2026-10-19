@@ -10,6 +10,8 @@
   <properties>
     <!-- rabbitmq:4.3.6-management digest resolved from Docker Hub metadata on 2026-10-18. -->
     <rabbitmq.image>rabbitmq:4.3.6-management@sha256:54cb013d76cd1fd6c0a0708f34062ad61c452bb6f016b434c6c33f1a765d2b58</rabbitmq.image>
+    <!-- mailpit:v1.31.6 manifest digest verified against Docker Hub metadata on 2026-10-18. -->
+    <mailpit.image>axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387</mailpit.image>
   </properties>
   <dependencies>
     <dependency>
@@ -19,6 +21,7 @@
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jdbc</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-amqp</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-mail</artifactId></dependency>
     <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webmvc-test</artifactId><scope>test</scope></dependency>
     <dependency><groupId>org.testcontainers</groupId><artifactId>testcontainers-junit-jupiter</artifactId><scope>test</scope></dependency>
@@ -38,6 +41,7 @@
           <systemPropertyVariables>
             <postgres.image>${postgres.image}</postgres.image>
             <rabbitmq.image>${rabbitmq.image}</rabbitmq.image>
+            <mailpit.image>${mailpit.image}</mailpit.image>
           </systemPropertyVariables>
         </configuration>
       </plugin>

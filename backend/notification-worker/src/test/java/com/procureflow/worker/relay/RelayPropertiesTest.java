@@ -44,4 +44,79 @@ class RelayPropertiesTest {
         assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, CONFIRM, 5, BACKOFF, 2.0, BACKOFF_MAX,
                 Duration.ofSeconds(-1))).hasMessageContaining("poll-interval");
     }
+
+    @Test
+    void subMillisecondDurationsAreRejectedBeforeTheyConvertToZeroMillis() {
+        // Each duration below used to pass validation while its millisecond conversion was zero: an
+        // immediately expiring lease, a confirm wait of zero, or a retry/poll with no delay at all.
+        assertThat(Duration.ofNanos(1).toMillis()).as("the raw conversion a sub-millisecond value produces")
+                .isZero();
+
+        assertThatThrownBy(() -> new RelayProperties(10, 40, Duration.ofNanos(1), CONFIRM, 5, BACKOFF, 2.0,
+                BACKOFF_MAX, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("lease-timeout");
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, Duration.ofNanos(1), 5, BACKOFF, 2.0,
+                BACKOFF_MAX, Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("confirm-timeout");
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, CONFIRM, 5, Duration.ofNanos(1), 2.0,
+                Duration.ofNanos(1), Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("retry-backoff");
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, CONFIRM, 5, BACKOFF, 2.0, BACKOFF_MAX,
+                Duration.ofMillis(49)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("poll-interval");
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, CONFIRM, 5, BACKOFF, 2.0, BACKOFF_MAX,
+                Duration.ofNanos(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("poll-interval");
+    }
+
+    @Test
+    void subMillisecondRetryCapIsNeverAcceptedAlongsideAValidBackoff() {
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, CONFIRM, 5, Duration.ofMillis(1), 2.0,
+                Duration.ofNanos(1), Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("retry-backoff-max");
+    }
+
+    @Test
+    void oversizedDurationsFailValidationInsteadOfArithmeticOverflow() {
+        Duration overflow = Duration.ofSeconds(Long.MAX_VALUE);
+        assertThatThrownBy(overflow::toMillis).as("the raw conversion that an absurd value would reach")
+                .isInstanceOf(ArithmeticException.class);
+
+        assertThatThrownBy(() -> new RelayProperties(10, 40, overflow, CONFIRM, 5, BACKOFF, 2.0, BACKOFF_MAX,
+                Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("lease-timeout");
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, overflow, 5, BACKOFF, 2.0, BACKOFF_MAX,
+                Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("confirm-timeout");
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, CONFIRM, 5, overflow, 2.0, overflow,
+                Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("retry-backoff");
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, CONFIRM, 5, BACKOFF, 2.0, overflow,
+                Duration.ofSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("retry-backoff-max");
+        assertThatThrownBy(() -> new RelayProperties(10, 40, LEASE, CONFIRM, 5, BACKOFF, 2.0, BACKOFF_MAX,
+                overflow))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("poll-interval");
+    }
+
+    @Test
+    void floorValuesStayAcceptedAndNeverProduceZeroConversions() {
+        var properties = new RelayProperties(10, 40, Duration.ofMillis(1), Duration.ofMillis(1), 5,
+                Duration.ofMillis(1), 2.0, Duration.ofMillis(1), Duration.ofMillis(50));
+
+        assertThat(properties.leaseTimeout().toMillis()).isEqualTo(1);
+        assertThat(properties.confirmTimeout().toMillis()).isEqualTo(1);
+        assertThat(properties.retryDelayMillis(1)).as("the minimum backoff still waits a whole millisecond")
+                .isEqualTo(1);
+        assertThat(properties.retryDelayMillis(25)).as("the capped minimum backoff stays non-zero").isEqualTo(1);
+        assertThat(properties.pollInterval().toMillis()).isEqualTo(50);
+    }
+
+    @Test
+    void hourlyPollIntervalRemainsAccepted() {
+        var properties = new RelayProperties(10, 40, LEASE, CONFIRM, 5, BACKOFF, 2.0, BACKOFF_MAX,
+                Duration.ofHours(1));
+
+        assertThat(properties.pollInterval().toMillis()).isEqualTo(3_600_000);
+    }
 }

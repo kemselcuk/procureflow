@@ -57,5 +57,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Run notification verifier unit checks
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - name: Build and check the isolated foundation stack
         run: python3 scripts/check-foundation.py
