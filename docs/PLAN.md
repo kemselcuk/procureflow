@@ -1,6 +1,6 @@
 # ProcureFlow implementation plan
 
-Status: **P0–P4 accepted after independent review and hosted verification; early P5 notification panel accepted; remaining P5–P7 work pending**.
+Status: **P0–P5 accepted locally/hosted; P6 browser-suite candidate in progress; P7 pending**.
 
 Prepared: 2026-10-17. This file is the task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md).
 
@@ -81,7 +81,7 @@ Historical evidence identifies the primary implementer as M, bounded contributor
 
 ## Phases, dependencies and acceptance
 
-P0–P4 are complete; the early P5 notification panel is accepted and remaining P5–P7 work is pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
+P0–P5 are complete, with separate local rendered-browser and hosted backend/frontend/system evidence. P6 browser-suite preparation is in progress and P7 remains pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
 
 ### P0 — Reproducible foundation and compatibility gate
 
@@ -712,6 +712,22 @@ M imported only those eight reviewed paths and independently ran `npm ci --no-fu
 The independent run subsequently **passed 28/28 real-browser checks** on the exact integrated 72-path source. M inspected its actual structured report and rendered manual-login screenshot: real UI create/submit, warm SSO, refresh, new tab, anonymous direct link followed by manual login, clean callback immediately/after 5.5 seconds/after Back, foreign-company not-found, tampered intent, exact root Code+S256 callbacks and root logout all passed. Per warm/refresh/new-tab round trip there was one authorization request and one token exchange; anonymous check plus explicit sign-in used two authorizations and one exchange. Evidence: `target/p5-auth-independent/{execution.log,report/deeplink-green.json,screenshots,cleanup.json}`. Fresh owned project `pfauthreview0c88c19c61` was removed and independently observed at zero containers/volumes/networks; browser profiles were removed and generated credentials were not persisted. Historical parked resources were not queried or modified.
 
 **DEEP-LINK-M1 and REQUEST-COPY-L1 are closed. M accepts P5.1–P5.4 locally**, subject to the explicitly separate final publication/hosted gate. No blocking product finding remains. The 198-check product run, 28-check independently rerun corrective delta, 469-case independent frontend suite, 146-case audit-app verification and preceding unchanged-backend seven-service regression have their distinct provenance above; they are not invented as one new all-in-one run. Final same-revision hosted backend/frontend/seven-service evidence remains pending, and P6 must commit the reproducible critical browser suite. Chromium-only local checks are not cross-browser or hosted-browser proof. No cloud deployment or additional paid service was used.
+
+#### P5 publication and P6 browser-suite preparation
+
+The exact 72 source/test/dependency paths plus README/PLAN/DECISIONS were inspected and committed as `c188866`; staged and publication-range redacted Gitleaks scans found no leaks. Publication initially refused a non-fast-forward because the repository owner had added the MIT license remotely as `d28542e`. M inspected that two-file documentation/license change, preserved it through a normal merge and verified all 72 tested product blobs remained byte-identical. The resulting published revision is **`0235e3f516358cc76b3dc0c7e142255391d6d70a`**. No force operation or unrelated source change was required.
+
+[Hosted run 39340590010](https://github.com/kemselcuk/procureflow/actions/runs/39340590010) is running on that exact revision. Main awaits the actual backend/frontend/seven-service outputs; running status is not acceptance. The existing workflow does not yet execute rendered-browser tests.
+
+P6.1/P6.3 preparation starts from the committed P5 baseline in an isolated candidate, without changing product/authentication/schema code. Its bounded ownership is a new pinned `e2e/` Playwright package, secure disposable seven-service browser runner and behavior tests, a separate standard Linux browser CI job, and the obsolete comment-only worker description in Compose. The existing three CI jobs and outage/replay checker remain unchanged. Critical real-role purchasing, budget denial/retry, notifications, cold links/foreign denial, mounted revocation and narrow/keyboard behavior must be reproducible without private local tool paths. Generated secrets stay in memory; callback/token/input-bearing diagnostics must be sanitized before persistence, and all failure paths must clean only their owned fixture. This is a running implementation candidate, not accepted P6 or hosted-browser evidence; P6 acceptance still depends on final P5 hosted success, independent source/security review and actual suite/CI outputs.
+
+#### Hosted P5 acceptance
+
+`gh run watch 39340590010 --exit-status` completed successfully. M fetched and inspected exact-revision metadata and full logs in `target/github-ci-39340590010.{json,log}` and confirmed published **`0235e3f516358cc76b3dc0c7e142255391d6d70a`** and all three successful jobs. Actual class-level results total **146 app + 104 worker = 250 backend cases**, zero failures/errors/skips, including 13 audit API cases. The frontend passed **469 cases / 25 files**, pinned-lock install, typecheck/build and audit with no reported vulnerabilities; the initial production bundle remained **479.58 kB**. All **20 Python verifier tests** passed.
+
+The hosted seven-service build/readiness/proxy/OpenAPI/real Keycloak Code+S256 and purchase/approval/budget regression passed. All eight messaging cases passed, including stopped-worker backlog, preserved read/SENT duplicate handling, broker outage, SMTP backoff/recovery, malformed quarantine, bounded canonical replay and inactive-recipient skip. Final observations were **15 events, 16 in-app notifications, 16 SENT emails, two skips**, queue drained and all seven services healthy. The log confirms exact-owned fixture container/volume/network cleanup. These are HTTP/protocol/container checks, not hosted rendered-browser execution.
+
+M accepts **P5.1–P5.4 and the P5 exit gate locally and on hosted CI**, using the separately recorded rendered-browser proof plus the exact-source corrective rerun and hosted regression. All 72 tested product blobs still match the published revision; the remote license merge changed no executable source. P6's committed/hosted browser suite and complete system-acceptance consolidation remain open. No cross-browser, external SMTP, cloud deployment, SLA or exactly-once email claim is made. This documentation follow-up changes no executable/configuration/test source and must not be described as a new tested executable revision.
 
 #### P4 notification API candidate
 
