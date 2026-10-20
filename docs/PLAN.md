@@ -1,6 +1,6 @@
 # ProcureFlow implementation plan
 
-Status: **P0–P5 accepted locally/hosted; P6 browser-suite candidate in progress; P7 pending**.
+Status: **P0–P6 accepted locally/hosted; P7 reproducibility and handoff pending; cloud deployment deferred**.
 
 Prepared: 2026-10-17. This file is the task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md).
 
@@ -81,7 +81,7 @@ Historical evidence identifies the primary implementer as M, bounded contributor
 
 ## Phases, dependencies and acceptance
 
-P0–P5 are complete, with separate local rendered-browser and hosted backend/frontend/system evidence. P6 browser-suite preparation is in progress and P7 remains pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
+P0–P6 are complete, including hosted real-browser and backend/frontend/system evidence on one reviewed revision. P7 reproducibility and handoff remain pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
 
 ### P0 — Reproducible foundation and compatibility gate
 
@@ -771,6 +771,26 @@ All six P6 verifier findings are now **closed at the independently tested local 
 M accepts the **P6 candidate locally**, not its final hosted/system exit gate. P6.1/P6.3 now have independently executed repository-owned commands; full same-revision backend/frontend/system/browser Linux CI, publication privacy checks and final evidence consolidation remain required. Product/backend source and schema are unchanged from P5; no broad duplicate local Java/frontend suite was rerun solely for test tooling changes.
 
 The publication scan initially flagged the fixed synthetic JWT used to test redaction. M inspected its source: a fictional subject, no issuer/audience/expiry, and a literal non-signature suffix, not a usable credential. A second redacted scan excluding only that exact reviewed finding fingerprint found no other leaks. No broad JWT-rule suppression or product/test source change was made; this is an explicit false-positive disposition, not a claim that the unfiltered scan had zero findings.
+
+The 17 reviewed source/test/tooling paths plus three central documents were committed and pushed normally as **`1e1de70`**. M checked the staged paths and exact committed source blobs, ran staged/range privacy scans with the explicit synthetic-fixture disposition above, and excluded unrelated local changes. The new browser job is published but has no observed hosted result yet; final P6 acceptance remains pending that exact-revision four-job run.
+
+#### Hosted P6 acceptance and consolidated evidence
+
+`gh run watch 39434791868 --exit-status` completed successfully. M fetched and inspected completed metadata/full logs in `target/github-ci-39434791868.{json,log}` and confirmed exact reviewed executable **`1e1de70dfe29686902812b710a572db7c0aeaa86`** and four successful jobs: backend, frontend, browser and containers. Actual class-level Java counts total **250 cases**, zero failures/errors/skips; the frontend passed **469 tests**, typecheck/build and audit. The E2E package passed exact-lock installation, audit and TypeScript checking, installed official **Chromium 148.0.7778.96 / Playwright build 1223**, and executed **seven passing real-browser cases**, no failures/skips, with `cleanup=ok owned=0`. All **62 Python verifier tests** passed on Linux, including real owned-process timeout and evidence/teardown failure behavior.
+
+The separate hosted system job passed real OIDC/business regression and all eight notification recovery cases. Final state: seven healthy services, **15 events, 16 in-app notifications, 16 SENT emails, two skips**, queue drained and exact-owned resource cleanup. M verified that all 17 committed P6 source blobs still match the independently reviewed manifest. [Hosted run](https://github.com/kemselcuk/procureflow/actions/runs/39434791868) is the same-revision combined acceptance reference, not a relabeling of older runs.
+
+| Acceptance catalog | Same-revision executable evidence |
+| --- | --- |
+| AC-BUDGET / AC-REPLAY | `ApprovalBudgetIT` races both final approval routes, duplicate commands and budget-limit edits against real PostgreSQL; the browser suite independently checks actual distinct role-holder decisions and usage. |
+| AC-TX | `ApprovalBudgetIT` post-usage write/commit failures and `RequestLifecycleIT` downstream failure cases verify atomic rollback of state, usage, history/audit/outbox and retry claims. |
+| AC-SEC / AC-DB | `IdentityAccessIT`, `RequestLifecycleIT`, `ApprovalBudgetIT`, `AuditApiIT`, notification API/schema tests and worker privilege tests cover current roles/membership, tenant-composite relationships and direct unauthorized writes. Browser cases cover foreign UUID content denial and already-mounted revocation with the original unexpired JWT. |
+| AC-FLOW / AC-MONTH | Threshold/invalid-money/terminal/stale/race tests and captured-clock UTC-month/budget-missing cases run in the backend job; browser actions verify actual UI lifecycle and errors. |
+| AC-NOTIFY / AC-OUTAGE | Real PostgreSQL/RabbitMQ/Mailpit worker tests plus the eight-case system checker cover stopped worker, duplicate delivery, broker/SMTP outages, malformed/canonical quarantine/replay, recipient revocation and final sums. Generic SMTP remains at-least-once. |
+| AC-WEB | The seven committed Chromium journeys run against real Keycloak and all seven services on a fresh Linux runner; separate broader P5 narrow/keyboard/stale/admin/audit evidence retains its original scope. |
+| AC-REPRO | Fresh hosted checkouts install pinned locks, build images, migrate empty databases, seed explicit local-demo fixtures and run both reproducible commands with owned cleanup. P7 separately verifies the interactive README setup and handoff instructions rather than claiming it from these automated checks alone. |
+
+M accepts **P6.1–P6.4 and the P6 exit gate locally and on hosted CI**. No unresolved blocking finding remains for this phase. Scope remains a small Chromium-only local/demo product: no external email guarantee, HA/load/SLA, exhaustive security assessment or cloud deployment. P7's interactive setup, evidence index/diagrams and future-environment handoff remain open. This evidence-only documentation update changes no executable source and must not be called a newly tested runtime revision.
 
 #### P4 notification API candidate
 
