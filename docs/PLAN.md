@@ -1,6 +1,6 @@
 # ProcureFlow implementation plan
 
-Status: **P0–P6 accepted locally/hosted; P7 reproducibility and handoff pending; cloud deployment deferred**.
+Status: **P0–P7 accepted within the approved local/demo scope; hosted executable evidence through P6 and independently reviewed P7 handoff; cloud deployment deferred**.
 
 Prepared: 2026-10-17. This file is the task/progress record. Architectural reasoning and version sources belong in [DECISIONS.md](DECISIONS.md).
 
@@ -81,7 +81,7 @@ Historical evidence identifies the primary implementer as M, bounded contributor
 
 ## Phases, dependencies and acceptance
 
-P0–P6 are complete, including hosted real-browser and backend/frontend/system evidence on one reviewed revision. P7 reproducibility and handoff remain pending. Effort ranges are planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. Total estimated effort is approximately **90–140 hours**, without a committed completion date.
+P0–P7 are complete within the approved local/demo scope. P6 has hosted real-browser and backend/frontend/system evidence on one reviewed revision; P7 reproducibility and handoff have local verification and independent documentation review. Effort ranges are historical planning estimates of focused development, explanation and review time, not measured speed or model-runtime promises. The original total estimate was approximately **90–140 hours**, without a committed completion date; no actual time-spent claim is derived from it.
 
 ### P0 — Reproducible foundation and compatibility gate
 
@@ -294,6 +294,17 @@ A phase is complete when its exit conditions pass and M accepts the integration.
 - A future deployment decision compares an EU-region VPS (for example Hetzner), an AWS/Azure/GCP VM and any genuinely suitable free allowance using then-current official prices. Include VAT, storage, snapshots, IPv4, transfer and minimum billing; do not rely on expiring credits or claim that a provider fits before pricing it.
 - Once a provider is selected, define Terraform resources/state/secrets, a cost cap, lifetime and deletion verification. `fmt`/`validate` is configuration evidence; authenticated `plan` and `apply` are separate operations. Actual deployment/cleanup and spend require the user's future deployment instruction within an explicit allowance.
 - A local, tested cloud-ready application is the release goal. It is not labelled production-deployed or production-hardened until that work is performed.
+
+### Future deployment gates — not performed
+
+These are deferred actions, not remaining local implementation tasks or permission to spend:
+
+1. User selects a hosting target/lifetime and explicitly approves a current total cost estimate within the shared portfolio reserve. Check VAT, persistent storage, backup, IPv4/transfer and deletion costs; do not assume temporary credits or a free managed service.
+2. Define external HTTPS origins, OIDC issuer/exact root callback allowlists, trusted proxy/TLS configuration and a production identity-provider setup without local demo fixtures. Keep database/broker/admin surfaces private.
+3. Select external secret provisioning/rotation and a controlled migration process with distinct runtime/migrator/worker/database credentials. Verify startup failure behavior without exposing environment/configuration values.
+4. Resolve broker node-identity/data-migration behavior and verify a real queued published event across container recreation; define and execute backup/restore for application and Keycloak data, broker recovery and monitoring/alerts for readiness, backlog and quarantine. A persistent volume or successful same-container restart is not backup or recreation proof.
+5. Only after provider approval, author provider-specific Terraform/state handling; record formatting/validation separately from authenticated plan and apply. Require explicit deployment/spend approval before provisioning.
+6. After any future authorized deployment, verify TLS/auth/tenant/business/delivery smoke checks, document limitations and lifetime, then verify resource/data deletion and final cost when retiring it.
 
 ## Risks and prerequisites
 
@@ -791,6 +802,38 @@ The separate hosted system job passed real OIDC/business regression and all eigh
 | AC-REPRO | Fresh hosted checkouts install pinned locks, build images, migrate empty databases, seed explicit local-demo fixtures and run both reproducible commands with owned cleanup. P7 separately verifies the interactive README setup and handoff instructions rather than claiming it from these automated checks alone. |
 
 M accepts **P6.1–P6.4 and the P6 exit gate locally and on hosted CI**. No unresolved blocking finding remains for this phase. Scope remains a small Chromium-only local/demo product: no external email guarantee, HA/load/SLA, exhaustive security assessment or cloud deployment. P7's interactive setup, evidence index/diagrams and future-environment handoff remain open. This evidence-only documentation update changes no executable source and must not be called a newly tested runtime revision.
+
+#### P7 execution start and handoff scope
+
+P7 starts from committed documentation baseline `990fc8c`, with accepted executable `1e1de70` unchanged. A fresh isolated verification checkout follows the README's interactive core-stack/worker-profile setup using new owned resources and in-memory credentials, then performs a volume-preserving down/restart with the same secrets and checks user-edited state/demo idempotency. It may author only ignored verifier/evidence files; all product, dependency, infrastructure and central-document source stays frozen there. No result or fresh interactive reproduction is claimed while it runs. The final operator-checklist additions are being reviewed separately from that baseline command evidence.
+
+README additions describe the actual component/transaction/message flow, current technology evidence, local operator commands and explicit deployment limitations. Source anchors include `RequestCommands.approve`, mandatory `BudgetCharger.charge`, `ActorAccess.command`, the manual-ACK consumer and the SMTP acceptance-before-SENT-save boundary. D015 records why local restart/persistence and environment configuration are preparation rather than a production/backup/HA guarantee. The provider-specific checklist above is deferred; no Terraform, domain, cloud resource, paid runner/storage or external email subscription is created.
+
+Remaining P7 gates: inspect actual fresh-setup/restart verifier, outputs/source hashes and exact cleanup; independently review documentation claims/diagrams and command safety; resolve material findings, check links/format/privacy, then publish the truthful handoff. P7 is not yet accepted.
+
+Independent documentation review verified all three frozen document hashes and 17 accepted P6 source hashes, 72 relative links/anchors and the actual hosted evidence. It found one **P7-RESTART-M1, medium, operator-claim issue**: recommending down/up as data-preserving restart was too strong for RabbitMQ without stable node identity. M independently checked the official image documentation, current Compose settings and relay claim SQL. This is a source-supported recreation risk, not a newly observed runtime data-loss experiment; the accepted P6 stop/start recovery evidence retains its scope.
+
+README now recommends same-container stop/start for routine pauses and explicitly warns that retained broker volume files do not guarantee the new container reopens the old queue. Published dispatches are not automatically republished into an empty replacement broker. The active fresh-checkout test's down/up scenario remains **PostgreSQL edited-state/seed idempotency evidence only**; it cannot close broker recreation. D015 records why a fixed-hostname change is not silently applied to an existing volume. No product/configuration byte changed. An independent follow-up review of this bounded documentation correction remains required before P7 acceptance; stable-node migration/recreation and backup/restore guarantees are explicitly unimplemented.
+
+#### P7 fresh-checkout evidence and handoff acceptance
+
+The independent documentation follow-up verified the corrected three-document snapshot, all 17 P6 source hashes, 72 relative links/anchors and the cited hosted metadata/log counts, with no new material objection. **P7-RESTART-M1 is closed as a documentation-claim correction**, not a broker runtime fix. The current broker-recreation/node-identity and backup/restore limitations remain explicit in README/D015 and outside the delivered guarantee.
+
+Earlier temporary-verifier attempts failed and were not accepted as passing evidence. The final run completed after a verifier timing correction: the earlier post-restart title mismatch read the loading heading before the detail's ready branch. The corrected verifier waits for the real `.submeta` detail branch before comparing title/version/amount. Product/runtime files were not changed, and no application data-loss defect is inferred from those failed verifier attempts.
+
+M read the temporary Python runner and browser verifier, their final correction, actual command logs/structured results and a post-restart rendered screenshot; verified all **261 clean-checkout tracked-file hashes**, unchanged baseline/after manifests and clean Git status; and separately observed zero resources for the exact owned final fixture and two retained failed-attempt fixture labels. Final report SHA-256: **`45cc6307efead215aabda9ea3cb6a34b838c91bd1c738878bb7d667c431e1686`**. M's retained 71-file evidence manifest is `target/p7-reviewed-evidence-manifest.txt`, SHA-256 **`57a50c15dece7189316c7303f4b6061f9cff830821787072c9926eff70e09773`**; report copy `target/p7-reviewed-report.json`. The underlying ignored `target/p7-repro/{run-p7.py,browser-p7.cjs,compose.override.yaml,evidence,logs,manifests}` remains in the verification checkout. These are inspected verifier/command artifacts, not acceptance based only on the author's summary.
+
+Actual fresh baseline **`990fc8cf287beee7ac571e9a8ba796ad5ec1f5d4`** has the accepted `1e1de70` executable. The run generated eight distinct environment secrets in memory, installed the exact E2E lock and official Playwright 1.60.0/Chromium 148.0.7778.96, then followed the README core four-service startup and seven-service worker enable. An explicit unique project, reserved loopback ports and image-tag-only override prevented collisions without changing product topology. Core startup passed readiness/proxy/OpenAPI checks; worker enable passed readiness checks. Real employee/manager Code+S256 sessions, clean callback URLs, the four threshold drafts and monthly budget UI/API passed.
+
+The employee created and edited a new fictional draft **through the real UI**, version **0 → 1**, amount **EUR 432.10**, create/edit history count two. Worker enable and a same-project/same-password down/up with retained volumes preserved its ID/title hash/version/amount, budget values/version, membership version, company IDs, four seed drafts per company and four seed-budget audit records without duplication. The same demo credentials still logged in after restart; core **4/4**, worker-enable **7/7** and restart **7/7** services were healthy. Final project `procureflow-p7-8d415f05` had independently observed **zero containers/volumes/networks**; the report records four owned image tags removed, profiles deleted and no owned browser processes remaining. Cleanup was limited to test-owned resources.
+
+This establishes **PostgreSQL edited-state/demo idempotency across same-host volume reuse**, not RabbitMQ message preservation after container recreation, host reboot or backup/restore. The optional new delivery flow was not repeated; actual consumer/SMTP proof remains P6. The non-demo seeding guard was source-checked, not tested in a second fresh non-demo runtime; no simulated clock shift or month-boundary run occurred here. Local host Node 22.23.2 differs from the pinned container/CI 22.23.3 within the accepted Node 22 range. Report/command logs were checked for JWT/private-key patterns; this is not a guarantee against every possible secret format.
+
+M accepts **P7.1–P7.4 locally within the approved local/demo handoff scope**, pending final documentation publication review and privacy checks. README has real architecture/transaction diagrams, commands/evidence and operator limits; D015 and the plan distinguish future provider selection, TLS/secrets, stable broker identity, tested backup/restore, Terraform validation/plan/apply and deployment/spend approval. Those deferred gates are not performed deliverables. No runtime source changed after the accepted P6 executable and no new hosted runtime run is claimed for documentation-only changes.
+
+Final independent handoff review verified the three-document snapshot, actual final report and 71 evidence-file hashes, 261 clean-source hashes, all 17 P6 source hashes and 72 links/anchors. It found **no publication-blocking material objection**. One low-severity wording correction narrowed proxy/OpenAPI observations to the core startup rather than implying they were independently repeated at worker enable; M applied that evidence-only correction. Broker recreation remains explicitly unimplemented, and the review does not convert author execution evidence into a new independent runtime run.
+
+M accepts **P7 and the complete P0–P7 local/demo handoff**. The final publication changes only README/PLAN/DECISIONS, uses `[skip ci]` and retains the already tested executable; no fresh hosted runtime result is invented for it. Deferred deployment/spending, broker-container recreation/migration, backup/restore, external SMTP, public TLS/HA/load/SLA and cross-browser guarantees remain outside this acceptance. Required local product/handoff tasks have no unresolved blocking finding; deferred capabilities are documented limitations, not silently completed work.
 
 #### P4 notification API candidate
 

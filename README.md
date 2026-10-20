@@ -2,9 +2,9 @@
 
 # ProcureFlow
 
-ProcureFlow is a corporate purchase-request and approval application under development. It combines a Java/Spring backend with an Angular interface, intended to make engineering decisions understandable and verifiable in interviews.
+ProcureFlow is a local/demo corporate purchase-request and approval application. It combines a Java/Spring backend with an Angular interface, intended to make engineering decisions understandable and verifiable in interviews.
 
-**Current status: P0–P6 accepted; P7 handoff pending.** [Hosted run 39434791868](https://github.com/kemselcuk/procureflow/actions/runs/39434791868), revision `1e1de70`, passed **250 backend tests, 469 Angular tests, 62 Python verifier tests, seven real Chromium journeys** and eight seven-service delivery/recovery cases. Department/finance approval and atomic budget charging remain independent of messaging availability. See [P6 acceptance and limitations](docs/PLAN.md#hosted-p6-acceptance-and-consolidated-evidence).
+**Current status: P0–P7 accepted within the local/demo scope; cloud deployment deferred.** [Hosted run 39434791868](https://github.com/kemselcuk/procureflow/actions/runs/39434791868), revision `1e1de70`, passed **250 backend tests, 469 Angular tests, 62 Python verifier tests, seven real Chromium journeys** and eight seven-service delivery/recovery cases. Fresh-checkout interactive setup and PostgreSQL edited-state preservation also passed locally; this is not broker-recreation or backup/restore proof. See [handoff evidence and limitations](docs/PLAN.md#p7-fresh-checkout-evidence-and-handoff-acceptance).
 
 The [P4 database foundation](docs/PLAN.md#p4-execution-record) is separately reviewed and locally/hosted verified: [run 39158792532](https://github.com/kemselcuk/procureflow/actions/runs/39158792532), revision `adf11c3`, passed **117 backend tests**, **14 Angular tests** and fresh Compose/Keycloak regression. A data-preserving V4→V5 database upgrade also passed locally. This is not full P4 acceptance; broker publication, notification APIs, consumption and SMTP delivery remain unimplemented in that revision.
 
@@ -19,9 +19,65 @@ The notification panel is published as `c9b7d4f`: [hosted run 39183791303](https
 - [Implementation plan and progress](docs/PLAN.md): scope, task owners, dependencies, acceptance criteria, estimates, risks and current progress.
 - [Decision record](docs/DECISIONS.md): architectural reasoning, version research and important trade-offs.
 
-Each subject has one authoritative document. This README is the entry point for running and evaluating the implemented foundation.
+Each subject has one authoritative document. This README is the entry point for running and evaluating the implemented product.
 
-## Implemented foundation
+## Architecture and consistency boundaries
+
+```mermaid
+flowchart LR
+  B["Browser / Angular"] -->|"Code + S256"| K["Keycloak"]
+  B -->|"Same-origin /api + bearer"| N["nginx"]
+  N --> A["Spring application"]
+  K --> KD[("Keycloak database")]
+  A -->|"State + budget + audit + outbox, one transaction"| DB[("Application PostgreSQL")]
+  subgraph W["One separate notification worker process"]
+    R["Outbox relay"]
+    C["Consumer"]
+    S["SMTP jobs"]
+  end
+  DB -->|"Fenced dispatch leases"| R
+  R -->|"Mandatory publish + confirms"| Q["Durable RabbitMQ queue"]
+  Q --> C
+  C -->|"Deduplicated inbox / notifications / jobs"| DB
+  DB -->|"Fenced email jobs"| S
+  S -->|"Outside database transactions"| M["Mailpit local capture"]
+```
+
+The two databases share the local PostgreSQL service but use different credentials and purposes. Keycloak proves identity; current application membership selects company, department and roles. An administrator role does not grant unrestricted purchase access. The application never calls the broker or SMTP while committing business operations. The worker does not import purchase/budget repositories and its database role cannot mutate those records. No Redis or extra microservice is needed for these guarantees.
+
+```mermaid
+sequenceDiagram
+  participant UI as Angular approval inbox
+  participant API as RequestCommands
+  participant DB as PostgreSQL
+  participant W as Notification worker
+  participant MQ as RabbitMQ
+  participant SMTP as Mailpit
+  UI->>API: Approve request with observed version
+  API->>DB: Begin; current membership + company barrier + request lock
+  API->>DB: Validate role, actor separation and pending version
+  opt Final approval only
+    API->>DB: Lock UTC-month budget; check used + amount <= limit
+    API->>DB: Update usage and insert unique charge
+  end
+  API->>DB: State + approval/history + audit + canonical event/recipients
+  DB-->>API: Commit all, or roll back all
+  API-->>UI: Saved current state, or explicit conflict/denial
+  W->>DB: Claim committed dispatch with fenced lease
+  W->>MQ: Publish persistent canonical event
+  MQ-->>W: Confirm / return / failure
+  MQ->>W: Deliver event
+  W->>DB: Commit deduplicated notification/email-job effects
+  W->>MQ: ACK only after durable outcome
+  W->>DB: Claim eligible email job and commit claim
+  W->>SMTP: Send without an open database transaction
+  SMTP-->>W: Accept or fail
+  W->>DB: Fenced SENT save or bounded retry/quarantine
+```
+
+The synchronous boundary is implemented by [RequestCommands](backend/app/src/main/java/com/procureflow/app/requests/RequestCommands.java), [BudgetCharger](backend/app/src/main/java/com/procureflow/app/budgets/BudgetCharger.java), [ActorAccess](backend/app/src/main/java/com/procureflow/app/identity/ActorAccess.java) and [RequestEvents](backend/app/src/main/java/com/procureflow/app/requests/RequestEvents.java). The asynchronous boundary lives in [relay](backend/notification-worker/src/main/java/com/procureflow/worker/relay), [consumer](backend/notification-worker/src/main/java/com/procureflow/worker/consumer) and [email jobs](backend/notification-worker/src/main/java/com/procureflow/worker/email). Database uniqueness/fencing handles redelivery; an SMTP acceptance followed by a crash before the SENT save can still send twice. Neither the diagram nor a stable Message-ID promises exactly-once email.
+
+## Implemented product
 
 - Java 21/Maven multi-module build: Spring Boot app, separate relay/consumer/SMTP worker and immutable schema-v1 event records. Database effects deduplicate; SMTP is at-least-once, not exactly-once.
 - Public system/OIDC configuration, OpenAPI and health endpoints; protected identity, company-membership, department and monthly-budget APIs; request lifecycle and department/finance approval with atomic budget checks, independently reviewed and locally verified.
@@ -40,7 +96,7 @@ The application includes company isolation, role-based authorization, request hi
 
 ## Technology to purpose to evidence
 
-Status is deliberately scoped: P0–P6 are accepted, with hosted browser/backend/frontend/system evidence on one reviewed revision. P7's interactive setup and handoff remain pending. Observed runs and limitations are recorded in the [plan](docs/PLAN.md#hosted-p6-acceptance-and-consolidated-evidence). Recovery timings are small-fixture observations, not an SLA, performance benchmark or coverage claim.
+Status is deliberately scoped: P0–P6 have hosted browser/backend/frontend/system evidence on one reviewed revision; P7's interactive setup, PostgreSQL preservation and documentation handoff passed local verification and independent review. Observed runs and limitations are recorded in the [plan](docs/PLAN.md#p7-fresh-checkout-evidence-and-handoff-acceptance). Recovery timings are small-fixture observations, not an SLA, performance benchmark or coverage claim.
 
 | Technology | Intended purpose | Code / configuration | Evidence / remaining gate |
 | --- | --- | --- | --- |
@@ -51,7 +107,7 @@ Status is deliberately scoped: P0–P6 are accepted, with hosted browser/backend
 | Angular/TypeScript | Routed purchasing, approval, budget and administration UI | [Frontend](frontend/src/app), [bootstrap tests](frontend/src/app/workspace/auth-bootstrap.spec.ts), [session](frontend/src/app/workspace/workspace-session.ts) | 469 tests, pinned-lock install, typecheck/build/audit passed independently locally and on [P5 hosted CI](https://github.com/kemselcuk/procureflow/actions/runs/39340590010). Separate local browser checks cover actual role holders, stale/budget denial, notifications, narrow layouts and revocation |
 | Transactional outbox; RabbitMQ | Recoverable publication and deduplicated notification effects | [Capture](backend/app/src/main/java/com/procureflow/app/requests/RequestEvents.java), [relay](backend/notification-worker/src/main/java/com/procureflow/worker/relay), [consumer](backend/notification-worker/src/main/java/com/procureflow/worker/consumer) | Real PostgreSQL/RabbitMQ tests and stopped-worker/broker/poison/replay cases passed locally; [final P4 evidence](docs/PLAN.md#final-p4-local-integration-gate) |
 | Mailpit | Inspect locally delivered demo email | [SMTP jobs](backend/notification-worker/src/main/java/com/procureflow/worker/email), [Compose](compose.yaml) | 16 SENT jobs correlated to captures across cases; real outage recovery passed locally. Acceptance-before-save can duplicate email; no external delivery claim |
-| JUnit, Mockito, Testcontainers | Verify behavior at its real boundary | [HTTP](backend/app/src/test/java/com/procureflow/app/system/FoundationHttpBoundaryTest.java), [migrations/OpenAPI](backend/app/src/test/java/com/procureflow/app/FoundationIT.java), [security/database](backend/app/src/test/java/com/procureflow/app/IdentityAccessIT.java), [requests](backend/app/src/test/java/com/procureflow/app/RequestLifecycleIT.java), [approval/budget](backend/app/src/test/java/com/procureflow/app/ApprovalBudgetIT.java), [delivery schema](backend/app/src/test/java/com/procureflow/app/NotificationDeliverySchemaIT.java) | All **117 backend tests** passed together on [foundation hosted CI](https://github.com/kemselcuk/procureflow/actions/runs/39158792532), including 43 approval/budget and 11 delivery-schema/privilege cases; not broker/SMTP runtime evidence |
+| JUnit, Mockito, Testcontainers | Verify behavior at its real boundary | [HTTP](backend/app/src/test/java/com/procureflow/app/system/FoundationHttpBoundaryTest.java), [migrations/OpenAPI](backend/app/src/test/java/com/procureflow/app/FoundationIT.java), [security/database](backend/app/src/test/java/com/procureflow/app/IdentityAccessIT.java), [requests](backend/app/src/test/java/com/procureflow/app/RequestLifecycleIT.java), [approval/budget](backend/app/src/test/java/com/procureflow/app/ApprovalBudgetIT.java), [delivery schema](backend/app/src/test/java/com/procureflow/app/NotificationDeliverySchemaIT.java), [worker tests](backend/notification-worker/src/test) | **146 app + 104 worker = 250 cases** passed together on [P6 hosted CI](https://github.com/kemselcuk/procureflow/actions/runs/39434791868), including real PostgreSQL, RabbitMQ and Mailpit behavior; browser evidence is a separate job |
 | Playwright | Repeatable browser checks of critical product journeys | [Critical suite](e2e/tests/critical.spec.ts), [shared test contract](e2e/critical-tests.json), [disposable runner](scripts/check-browser.py) | Seven real-browser cases passed independently locally and on [Linux hosted CI](https://github.com/kemselcuk/procureflow/actions/runs/39434791868), using Playwright 1.60.0/official Chromium 148.0.7778.96; 62 Python verifier checks also passed |
 | Docker Compose | Reproduce the local application and messaging pipeline | [Compose](compose.yaml), [smoke check](scripts/check-foundation.py), [notification cases](scripts/notification_smoke.py) | Seven healthy services, real OIDC/business regression, eight notification cases and exact fixture cleanup passed locally and on hosted CI |
 | GitHub Actions | Repeat backend, frontend, browser and messaging recovery checks | [Workflow](.github/workflows/ci.yaml) | [Passing P6 run](https://github.com/kemselcuk/procureflow/actions/runs/39434791868): 250 backend, 469 Angular, 62 verifier tests, seven Chromium journeys and seven-service recovery; executable revision `1e1de70` |
@@ -117,7 +173,7 @@ Open `http://localhost:4200`, `http://localhost:8080/v3/api-docs` and local Keyc
 
 The Compose configuration explicitly enables the `local-demo` application profile and imports a local-only Keycloak realm. Fictional accounts are `a-employee`, `a-manager`, `a-finance`, `a-admin` for Larkvane, and the corresponding `b-…` accounts for Northstar. Each company has engineering/operations departments. Business roles live in the application database, not in token role claims. The Keycloak administration account is `local-admin` with your `KEYCLOAK_ADMIN_PASSWORD`; application company administrators are not Keycloak administrators. Account/password management stays in Keycloak. Realm startup import skips an existing realm; changing environment passwords does not reset existing users.
 
-P3 demo startup adds EUR 5,000 current-UTC-month budgets and four drafts per company: EUR 999.99, 1,000.00, 1,000.01 and 6,000.00. Submit through **My requests** as the employee, then use **Approvals** as the department manager and, above EUR 1,000, a different finance approver. The final amount exceeds the seed limit. Repeat startup inserts only missing fixtures and never overwrites edited drafts, limits or later revocations. New months receive no automatic approval-time budget; an administrator must configure one (demo startup may seed its current month).
+P3 demo startup adds a EUR 5,000 current-UTC-month budget for each company's **engineering and operations departments**, plus four drafts per company: EUR 999.99, 1,000.00, 1,000.01 and 6,000.00. Submit through **My requests** as the employee, then use **Approvals** as the department manager and, above EUR 1,000, a different finance approver. The final amount exceeds the seed limit. Repeat startup inserts only missing fixtures and never overwrites edited drafts, limits or later revocations. New months receive no automatic approval-time budget; an administrator must configure one (demo startup may seed its current month).
 
 Host application runs without `local-demo` do not seed company data. Unknown valid identities may self-register, but cannot access company endpoints until an administrator explicitly assigns an active membership. Company administration endpoints and exact scopes are in the [P1 matrix](docs/PLAN.md#p1-endpointaction-matrix). **Administration** links already-registered identities to departments and roles; account/password creation stays in Keycloak. **Budgets** manages fictional monthly limits; **Audit** exposes company-scoped metadata, not purchase content or approval overrides.
 
@@ -125,7 +181,18 @@ Request API inputs/scopes are in the [P2 matrix](docs/PLAN.md#p2-endpointaction-
 
 Navigation links reflect current server membership; hiding a link is not authorization. Deep links use the same exact root OIDC callback as login/logout. Only a validated internal pathname with a ten-minute expiry may briefly persist in per-tab session storage; tokens, callback values, profiles and form data are not stored there. Successful restoration consumes it, and logout clears it. See [callback ownership](docs/DECISIONS.md#d013--oidc-callback-ownership-before-router-navigation).
 
-Keep the same password environment when reusing the volume; do not regenerate it between restarts. `docker compose down` stops the development stack and preserves its databases. **Destructive local reset:** `docker compose down --volumes` deletes this project's application and Keycloak databases; use it only for data you intend to discard. Existing P0-only volumes do not contain the new separated database roles because PostgreSQL init scripts run only on an empty volume: migrate roles deliberately or reset only your disposable local data. Never silently delete a volume to bypass this prerequisite.
+Keep the same password environment when reusing a volume; do not regenerate it between restarts. For routine full-stack pauses, use `docker compose --profile worker stop` and `docker compose --profile worker start --wait`, preserving the existing containers. `down` preserves named volume files but removes containers; it is **not** a broker-message-preserving restart guarantee. The RabbitMQ recreation limitation below matters even without `--volumes`. **Destructive local reset:** `docker compose --profile worker down --volumes` deletes the selected project's application/Keycloak databases and broker data; use it only for disposable data. Existing P0-only volumes lack the separated database roles because PostgreSQL init scripts run only on an empty volume: migrate roles deliberately or reset only your disposable local data. Never silently delete a volume to bypass this prerequisite.
+
+### Local operator checklist
+
+- Use an explicit project name (`docker compose -p <your-project> …`) when running several copies; carry the same name, ports and password environment through every command. Never run a reset against an unidentified project.
+- For the full stack, `docker compose --profile worker ps` shows the seven services. App/worker readiness is `/actuator/health/readiness`; it includes database connectivity, **not** proof that every message or email is delivered. Check the administrator backlog endpoint and Mailpit separately. Frontend `/health` only proves nginx responds.
+- Routine pause/resume: `docker compose --profile worker stop`, then `docker compose --profile worker start --wait` with the same project/settings. This keeps the existing broker container/node identity. `up --build --wait` is for initial creation or deliberate updates, not proof that every stateful service can be safely recreated.
+- PostgreSQL and RabbitMQ use named volumes, but the current RabbitMQ service has **no fixed hostname/node name**. RabbitMQ's data directory depends on that identity; after `down` or forced broker recreation, a new container may not open the previous queue data. Existing recovery tests stop/start the same broker container, not a recreated one. Already `PUBLISHED` dispatches are not automatically republished if a new broker has an empty queue. Do not recreate it with unconsumed messages or claim volume retention alone protects them; stable-node migration and a real queued-message recreation regression are unimplemented. Inspect/correct the cause before any privileged scoped replay—never delete deduplication rows.
+- Mailpit's temporary mailbox disappears when its container is removed; durable SENT jobs are not automatically sent again to refill it. A PostgreSQL down/up persistence check establishes database state survival, not RabbitMQ recreation or backup/restore.
+- Treat database role creation, password rotation, migrations and business-event replay as separate deliberate operations. Changing Compose environment values does not rotate existing PostgreSQL/RabbitMQ/Keycloak credentials. Never dump resolved Compose configuration/container environments or share raw authenticated browser traces.
+- A full-stack **destructive disposable reset** is `docker compose --profile worker down --volumes`; it deletes that selected project's application/Keycloak databases and broker data. This is not a routine repair or a backup. The automated checkers already isolate and clean only their own fixtures.
+- Failed deliveries may be pending/retrying, skipped for revoked membership, or quarantined. Correct the recorded cause before using the scoped recovery procedures below; never delete deduplication records to force an email resend.
 
 For frontend hot reload, keep the backend on port 8080 and run `npm start` from `frontend/` after stopping the frontend container; the development proxy forwards `/api/**` and OpenAPI to that backend. The service is loopback-only.
 
@@ -191,9 +258,15 @@ Acceptance evidence covers three required scenarios:
 2. Users cannot read or change another company's data or perform actions outside their role and department.
 3. Notifications committed while the worker is stopped are completed after it restarts. Duplicate event delivery is safe for database effects; email delivery has the limitations recorded in the decision log.
 
-The explicit local-demo profile contains two companies, multiple departments, distinct role holders and threshold/insufficient-budget draft fixtures. Database concurrency, notification recovery and committed rendered-browser journeys have local/hosted evidence on one reviewed revision. P7's interactive setup and handoff remain pending.
+The explicit local-demo profile contains two companies, multiple departments, distinct role holders and threshold/insufficient-budget draft fixtures. Database concurrency, notification recovery and committed rendered-browser journeys have local/hosted evidence on one reviewed revision. A fresh interactive checkout also preserved a UI-edited draft, budgets, memberships and seed counts after PostgreSQL volume reuse with unchanged credentials. That does not prove RabbitMQ recreation, backup/restore or production deployment; those limitations remain part of the accepted handoff.
 
-Product architecture/transaction diagrams follow the real implementation during delivery. A demo video is not a deliverable.
+## Delivery limits and a future public environment
+
+This is a tested **local/demo application**, not a deployed public service. The Compose realm uses Keycloak `start-dev`, local HTTP and fictional credentials/accounts; Mailpit is a local capture sink. Do not expose this configuration unchanged to the internet. The app and worker use environment-supplied credentials, separate database roles, health checks and graceful shutdown; their durable state lives in PostgreSQL/RabbitMQ rather than local process memory. This is preparation, not a verified production deployment.
+
+A future environment needs explicit HTTPS/public-origin and issuer/proxy configuration, production Keycloak configuration without demo seeding, private database/broker networking, external secret management and deliberate migrations/credential rotation. PostgreSQL backups must include both application and Keycloak data; persistent volumes and restart tests are **not backup/restore evidence**. Resolve the broker node-identity/recreation limitation, define and test restore procedures, broker recovery, alerting for backlog/quarantine and an authenticated email provider before making operational guarantees. No backup restoration, broker-container recreation persistence, multi-node failover, public TLS deployment, load/SLA or cross-browser certification is claimed.
+
+Cloud provider selection, current pricing, Terraform configuration/validation/plan/apply, spend approval, deployment and deletion verification are separate future gates in the [plan](docs/PLAN.md#cost-and-cloud-boundary). No cloud resource, domain or paid service was created for this implementation. A demo video is not a deliverable.
 
 Created in [T3 Code](https://t3.codes).
 
