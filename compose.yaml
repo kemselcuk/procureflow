@@ -67,7 +67,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   # Durable publishing runtime: PostgreSQL-fenced outbox relay with bounded retry/quarantine.
-  # Consumer materialization and SMTP remain later P4 slices; the queue intentionally accumulates.
+  # The worker consumes committed events into in-app/email effects; business commands stay broker-independent.
   notification-worker:
     image: procureflow-notification-worker:0.1.0-p0
     profiles: ["worker"]

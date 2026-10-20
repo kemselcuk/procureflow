@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "description": "Stable identities of the seven critical browser journeys. scripts/check-browser.py and the Playwright spec both read this single contract.",
+  "tests": [
+    {
+      "id": "employee-lifecycle",
+      "title": "employee creates, edits and submits with invalid input writing nothing",
+      "checks": ["employeeLifecycle"]
+    },
+    {
+      "id": "dual-approval",
+      "title": "manager and a different finance holder approve above EUR 1,000 with timeline, notification and budget crosschecks",
+      "checks": ["approvalTimeline", "employeeNotification", "managerNotification", "budget"]
+    },
+    {
+      "id": "budget-denial-retry",
+      "title": "insufficient budget leaves no additional budget usage and an administrator UI limit raise enables an explicit retry",
+      "checks": ["insufficientBudgetDenial", "budgetRaiseAndRetry", "budget"]
+    },
+    {
+      "id": "terminal-rejection",
+      "title": "rejection is terminal and records the reason",
+      "checks": ["rejection"]
+    },
+    {
+      "id": "deep-link-callback",
+      "title": "warm and anonymous direct links restore only a clean internal path with the exact root Code+S256 callback",
+      "checks": ["warmDeepLink", "coldDeepLink"]
+    },
+    {
+      "id": "foreign-company-uuid",
+      "title": "another company member cannot disclose a direct foreign request UUID",
+      "checks": ["foreignDirectUuid"]
+    },
+    {
+      "id": "mounted-revocation",
+      "title": "administrator deactivation denies an old unexpired manager JWT and clears the mounted inbox",
+      "checks": ["revocationWithUnexpiredJwt"]
+    }
+  ]
+}

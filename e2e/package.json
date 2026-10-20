@@ -1,0 +1,21 @@
+{
+  "name": "procureflow-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Critical local browser journeys against the real seven-service ProcureFlow stack.",
+  "engines": {
+    "node": ">=22.22.3 <23",
+    "npm": ">=10 <11"
+  },
+  "packageManager": "npm@10.9.8",
+  "scripts": {
+    "test": "playwright test",
+    "test:list": "playwright test --list",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0",
+    "@types/node": "22.20.5",
+    "typescript": "6.0.3"
+  }
+}
