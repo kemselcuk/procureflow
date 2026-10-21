@@ -872,3 +872,78 @@ R3 is a bounded focus-only corrective round from the exact R2 patch: retain nati
 R3 review/browser closure: only the component and its test changed; the other seven R2 files remain byte-identical. The component now hands focus from the active read action to its row before disabling that action. Existing duplicate/session guards and the read-confirmation overlay remain unchanged. Two additional held-response cases first failed on R2 and pass after correction, covering focus during pending render and success/failure; retained no-steal/session cases remain. M read the complete delta (`target/p5-notifications-r2-r3.diff`, SHA-256 `ef265286b8ad2024c2cd765cca544d1a21fe8889f4ee63a21d0b3f2ca2b91c9d`) and independently reran the actual Angular/isolated Chromium probe: focus stays on `LI` while pending and after success, Tab advances to the second notification, confirmed read state survives a stale refresh, logout clears the panel, and no uncaught page error was observed. At 375px, scroll width is 375px and the panel is 330px wide; M inspected the full narrow screenshot. Evidence: ignored `target/p5-notifications-r3-{browser.log,browser.json,focus-probe.json,narrow.png}`. These are rendered fixture checks, not a general accessibility certification or live API/OIDC/delivery acceptance. **UI-L1 is closed** for the reproduced keyboard path; failure-focus behavior has unit, not separate browser, evidence.
 
 M integrated the exact reviewed nine-file R3 patch after clean apply-check, preserving unrelated main-checkout work. R3 manifest SHA-256 `4aec91cb7083b829f9dd95863d747d0161ea6f72189cbcba350e15d0e02efad9`; patch SHA-256 `6a56e240ab899dc5ae4ce3be94dc7109b58b13ad069e19e5188335603a1d210e`. All integrated bytes match. Main frontend **typecheck, 78 tests in four files and production build passed**, each exit 0; actual logs: ignored `target/p5-notifications-r3-main-{typecheck,test,build}.log`. Live API/interceptor/Keycloak integration and panel publication/phase acceptance remain pending. One nonblocking integration cleanup remains: the API service comment still describes the earlier pre-endpoint baseline and must be updated by its implementation owner before claiming current-revision documentation accuracy.
+
+### P8 — Hardening track (research accepted, implementation not started)
+
+P8 is a new, separately gated hardening track; it does not rewrite the accepted P0–P7 local/demo scope. Two read-only OpenCode Go DeepSeek V4.1 Flash `max` roles produced performance/correctness and security/adversarial research: one is the future sole source author, the other an independent researcher/reviewer. Main validates findings, owns the shared contracts/documents and grants final acceptance; it does not author application code. No application, test, schema or infrastructure change has been made for P8 yet.
+
+Research classification: **confirmed source behavior** (code/config read), **source-supported risk** (mechanism plausible, impact unmeasured), and **deferred product decision**. No latency, throughput, CVE or exploit result is claimed. Runtime/load tests are future acceptance work. The actual baseline remains `b0a4672` with executable `1e1de70`; all earlier evidence stays valid for its stated scope.
+
+#### Validated findings and dispositions
+
+| ID | Disposition | Evidence |
+| --- | --- | --- |
+| H-PERF-01 | Confirmed source inefficiency: admin membership list performs `1 + 3N` statements | `DirectoryService.memberships()` loads IDs, then `membership()` per member; small-fixture functional tests pass but no query-count test exists |
+| H-PERF-02 | Confirmed extra actor reads: `current()` issues three statements and `command()` calls it twice around the company barrier | `ActorAccess.current/command`; required current-membership re-read must be preserved |
+| H-PAGE-01 / S-06 | Confirmed pagination/body-bound gaps | Request/notification count and page are separate READ COMMITTED statements; audit page accepts unbounded `page`; nginx has no `client_max_body_size`, and direct app port bypasses nginx |
+| H-INDEX-01 | Source-supported index gap | `notification_delivery` counts by `(company_id, outcome)` lack an index; audit's `(company_id, occurred_at, id)` ordering may need a tie-breaker index; EXPLAIN required |
+| H-SCHED-01 / S-05 | Confirmed worker scheduler contention risk | Both relay and SMTP `@Scheduled` tasks share Boot's default single scheduler thread; no isolation test or latency measurement exists |
+| H-FANOUT-01 | Confirmed producer/consumer mismatch | `RequestEvents` has no recipient limit; consumer rejects bodies over 65536 bytes as malformed and ACKs the quarantine; no large-fan-out test |
+| H-BUDGET-01 | Confirmed race mechanism, invariant preserved | Two absent-row `setLimit` transactions can collide on the unique budget period; loser receives conflict, no silent overwrite; no concurrent first-insert test |
+| H-ERR-01 | Source-supported error-mapping gap | `DataAccessResourceFailureException`/connection-pool exhaustion is not mapped to a retryable 503; no API pool-exhaustion test |
+| H-CONSUMER-01 | Source-supported availability risk | An unhandled listener exception retains the delivery forever with backoff; no unhandled-exception or bounded-quarantine test and no DLQ |
+| S-01 | Confirmed unsafe production-demo default | nginx serves HTML without CSP/`frame-ancestors`/XFO/COOP; built `index.html` contains an inline style and inline script, so CSP must account for them |
+| S-02 | Confirmed least-privilege gap | The long-lived app container receives `MIGRATION_DB_PASSWORD` and runs Flyway in-process; app-row audit/history append-only grants remain effective only for the runtime role |
+| S-03 | Confirmed governance/consent risk; product decision deferred | A different-company admin can activate an existing identity whose other membership is inactive; global one-active-membership rule can block the other company |
+| S-07 / retention | Confirmed operational growth | `notification_diagnostic`, `api_command` and audit/event tables have no retention policy; worker has no DELETE grant, so deletion must be operator/migration-owned |
+| S-04 | **Rejected false positive in the real stack** | Main executed a Nimbus probe: scalar JSON `aud` is normalized to `ArrayList`, so the listed `JwtClaimValidator` cast does not occur through `NimbusJwtDecoder`. Add only a regression test if useful; no production code change required |
+| Frontend refresh wrapper | **Rejected** | Pinned `keycloak-js` already serializes concurrent refreshes through `#refreshQueue`; adding a wrapper would be redundant. GET cancellation remains a measured improvement candidate |
+| H-BROKER-01 | Confirmed documented limitation; safe migration required | RabbitMQ has no fixed node identity; retained volume files do not guarantee a recreated broker opens the old queue; `PUBLISHED` dispatches are not automatically replayed |
+
+Also deferred without implementation: CSRF tokens (bearer-only, stateless architecture), token denylist (current membership is re-read), PostgreSQL RLS (the worker's cross-company reads are a designed residual risk), Redis/rate-limit service, WAF/mTLS/SIEM, automatic deletion, quorum queues and multi-membership UI. These require a concrete measured requirement or a product decision.
+
+#### P8.0 — Measurement harness (no behavior change)
+
+Add test-only counting/EXPLAIN helpers and deterministic fixture generation for query counts, page depth and worker throughput; add a frontend route-delay/abort harness for cancelled GETs. Record the baseline revision, environment and raw observations. No SLA or benchmark claim. Gate: harness reproducible, product bytes unchanged, reviewer validates the harness and baseline.
+
+#### P8.1 — Security defaults and bounded process separation
+
+- nginx: explicit `client_max_body_size`; CSP plus `frame-ancestors 'none'`, `X-Frame-Options: DENY`, COOP and existing headers. Use the real build's inline style/script inventory; prefer Angular `security.autoCsp` for the inline script hash rather than weakening `script-src`.
+- Application: explicit JSON request-size guard returning 413 for oversized/normal payloads, including the direct app port; preserve normal forms.
+- Compose: one-shot migration service running Flyway, then the app without `MIGRATION_DB_PASSWORD` and with `SPRING_FLYWAY_ENABLED=false`; fail closed when the schema is not migrated. Update both local checkers and CI startup sequencing without resetting existing volumes.
+- Worker: separate scheduler capacity (`spring.task.scheduling.pool.size: 2` or dedicated schedulers) so SMTP I/O cannot starve the relay.
+- Audit API: bounded page policy consistent with request/notification APIs.
+- Regression test for scalar/array `aud` proving no 500 (expected: valid array and valid scalar accepted per RFC; wrong value rejected 401).
+
+Gate: real header/iframe assertions, oversized-body 413/400, fresh and existing-volume migration paths, SMTP-blackhole relay progress, existing 250 Java/469 Angular/62 Python/7 browser/8 recovery checks; hosted CI on the exact revision. No production TLS/HSTS claim.
+
+#### P8.2 — Data-access efficiency and pagination consistency
+
+- Replace admin membership `1 + 3N` reads with bounded bulk queries (membership/roles/managed departments), preserving company scope and role mapping; no cross-request authorization cache.
+- Consolidate `ActorAccess.current()` into a single snapshot query while keeping the company-barrier re-read in `command()`; revocation semantics must remain identical.
+- Combine count and page in one CTE snapshot per list; define a shared page cap, including audit; keep `page/total` compatibility.
+- Add only EXPLAIN-supported additive indexes in V6 (candidate: `notification_delivery(company_id, outcome)`, audit tie-breaker ordering). V6 must apply to a populated V5 volume; rollback is index-only.
+- Fix the first-budget-period race with an advisory transaction lock or conflict-safe insert/update; never bypass the budget invariant.
+- Budget: query-count and EXPLAIN evidence, deep-page cap/consistency, concurrent first insert, existing approval races.
+
+Gate: test-only query-count budgets, EXPLAIN evidence on a deterministic populated fixture, V5→V6 upgrade/rollback, and the tenant/budget/atomicity invariants unchanged.
+
+#### P8.3 — Worker fan-out, recovery and retention
+
+- Bound notification fan-out by batching recipients into multiple canonical events below the configured consumer body limit (proposed batch size 40; exact value must be justified by measured envelope size), or by an explicit product cap. Never let a valid business event silently become `MALFORMED_MESSAGE`.
+- Add a migration-safe broker node-identity plan for new installs and a documented migration/runbook for an existing populated volume. Do not silently change the identity of an existing volume or reset it. Acceptance must include a real persistent queue drained after container recreation with the fixed identity, and a scoped `PUBLISHED` replay procedure for an intentionally replaced broker; verify consumer dedup and preserved `SENT` jobs.
+- Add operator-owned diagnostic retention SQL (preview/dry-run, scoped age/terminal-state rules) and metrics; no automatic deletion, no worker DELETE grant.
+- Evaluate the consumer's unhandled-exception policy; if a bounded quarantine/health path is added, it must retain the message until durable evidence exists.
+
+Gate: large-fan-out event completes without malformed quarantine; fixed-identity broker recreation preserves a real queued message; scoped replay is company/event-limited and dedup-safe; retention preview leaves active terminal quarantine replayable; existing eight recovery cases and hosted seven-service job pass.
+
+#### P8.4 — Deferred product decisions
+
+1. Identity invitation/consent model for cross-company membership linking (S-03), or an explicitly documented governance limitation.
+2. Retention windows for audit/history, `api_command`, outbox/inbox/delivery/email and diagnostics.
+3. Target scale (portfolio demo vs. larger multi-company use) to decide how much P8.2/P8.3 capacity work is warranted.
+4. Whether a future deployment requires TLS/HSTS, external OIDC/secret manager, tested backup/restore, broker HA/queues and load/SLA evidence. These remain outside the local demo gate.
+
+#### P8 ownership and evidence rules
+
+One bounded DeepSeek author owns each implementation slice and all its source/tests; the independent DeepSeek reviewer owns no files and must not review code it authored. Main verifies actual diffs, command output, migrations, cleanup and invariants, then accepts or returns findings. Every slice starts from a committed baseline, uses real PostgreSQL/RabbitMQ where relevant, and records red/green evidence. No paid service, cloud deployment, Redis, blind dependency upgrade or public security claim is introduced. Existing user `.gitignore` and historical parked fixtures remain untouched.
