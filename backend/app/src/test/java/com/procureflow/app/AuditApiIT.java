@@ -226,10 +226,10 @@ class AuditApiIT {
         assertThat(page3.path("items").isArray()).isTrue();
         assertThat(page3.path("items").size()).isZero();
 
-        // A valid int page whose long offset exceeds int range must not overflow or 400.
-        var huge = nodes(send("a:admin", PATH + "?page=2147483647&size=100"));
-        assertThat(huge.path("total").asLong()).isEqualTo(5);
-        assertThat(huge.path("items").size()).isZero();
+        // A valid int page up to the shared bounded policy must not overflow or 400.
+        var capped = nodes(send("a:admin", PATH + "?page=1000000&size=100"));
+        assertThat(capped.path("total").asLong()).isEqualTo(5);
+        assertThat(capped.path("items").size()).isZero();
 
         var union = new ArrayList<UUID>();
         union.addAll(ids(page0.path("items")));
@@ -257,13 +257,49 @@ class AuditApiIT {
     @Test void invalidPageOrSizeReturnsFixedInvalidRequestBeforeDatabasePagination() throws Exception {
         for (var query : List.of("page=-1&size=20", "page=0&size=0", "page=0&size=101",
                 "page=0&size=-1", "page=abc&size=20", "page=0&size=abc",
-                "page=2147483648&size=20", "page=0&size=2147483648", "page=0&size=1000")) {
+                "page=2147483648&size=20", "page=0&size=2147483648", "page=0&size=1000",
+                "page=1000001&size=20", "page=2147483647&size=100")) {
             var response = send("a:admin", PATH + "?" + query);
             assertThat(response.statusCode()).as(query).isEqualTo(400);
             assertThat(nodes(response).path("code").asText()).as(query).isEqualTo("invalid_request");
         }
         assertThat(send("a:admin", PATH + "?page=0&size=100").statusCode()).isEqualTo(200);
         assertThat(send("a:admin", PATH + "?page=0&size=1").statusCode()).isEqualTo(200);
+    }
+
+    @Test void pageCapMatchesTheRequestAndNotificationPolicyAtTheExactBoundary() throws Exception {
+        seedAudit("a", "request.created", UUID.randomUUID(), NOW, UUID.randomUUID(), "a:admin");
+
+        var atCap = send("a:admin", PATH + "?page=1000000&size=100");
+        assertThat(atCap.statusCode()).as(atCap.body()).isEqualTo(200);
+        var body = nodes(atCap);
+        assertThat(body.path("page").asInt()).isEqualTo(1000000);
+        assertThat(body.path("total").asLong()).isEqualTo(1);
+        assertThat(body.path("items").size()).isZero();
+
+        var beyondCap = send("a:admin", PATH + "?page=1000001&size=100");
+        assertThat(beyondCap.statusCode()).isEqualTo(400);
+        assertThat(nodes(beyondCap).path("code").asText()).isEqualTo("invalid_request");
+    }
+
+    @Test void rfcCompatibleScalarAndArrayAudienceAreAcceptedAndAWrongValueIsUnauthorized() throws Exception {
+        seedAudit("a", "request.created", UUID.randomUUID(), NOW, UUID.randomUUID(), "a:admin");
+        var subject = id("a:admin:keycloak").toString();
+
+        // TestTokens defaults to JWTClaimsSet.audience(...), which serializes as a JSON array.
+        var arrayResponse = sendToken(TOKENS.token(subject), PATH, Map.of());
+        assertThat(arrayResponse.statusCode()).as(arrayResponse.body()).isEqualTo(200);
+
+        // RFC 7519 permits a single audience string; the real resource-server decoder must not 500.
+        var scalar = TOKENS.token(subject, claims -> claims.claim("aud", "procureflow-api"), false);
+        var scalarResponse = sendToken(scalar, PATH, Map.of());
+        assertThat(scalarResponse.statusCode()).as(scalarResponse.body()).isEqualTo(200);
+
+        var wrongScalar = TOKENS.token(subject, claims -> claims.claim("aud", "another-api"), false);
+        assertThat(sendToken(wrongScalar, PATH, Map.of()).statusCode()).isEqualTo(401);
+
+        var wrongArray = TOKENS.token(subject, claims -> claims.claim("aud", List.of("another-api")), false);
+        assertThat(sendToken(wrongArray, PATH, Map.of()).statusCode()).isEqualTo(401);
     }
 
     @Test void entriesExposeOnlyBoundedMetadataAndPreservePreciseUtc() throws Exception {

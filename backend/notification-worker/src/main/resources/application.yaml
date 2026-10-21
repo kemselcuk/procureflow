@@ -1,6 +1,13 @@
 spring:
   application:
     name: procureflow-notification-worker
+  # Relay and SMTP runners are independent periodic tasks; two scheduler threads keep a blocked
+  # SMTP send from delaying outbox publication. The fixedDelay semantics and the database-fenced
+  # leases are unchanged.
+  task:
+    scheduling:
+      pool:
+        size: 2
   datasource:
     url: ${WORKER_DB_URL:jdbc:postgresql://localhost:5432/procureflow}
     username: ${WORKER_DB_USERNAME:procureflow_worker}

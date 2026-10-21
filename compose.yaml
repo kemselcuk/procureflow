@@ -25,6 +25,34 @@ services:
       timeout: 3s
       retries: 20
 
+  # One-shot schema owner: runs Flyway to the latest version and exits 0 before the long-lived
+  # application starts. Among the application-image services only migrate holds
+  # MIGRATION_DB_PASSWORD; PostgreSQL init receives it to create roles on an empty volume. The
+  # application runs with Flyway disabled and fails closed (JPA schema validation) if the schema
+  # is missing.
+  migrate:
+    image: procureflow-app:0.1.0-p0
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        MODULE: app
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/procureflow
+      DB_USERNAME: procureflow_migrator
+      DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD for local development}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD for local development}
+      # No HTTP server: the process applies migrations, validates the schema and exits.
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
   app:
     image: procureflow-app:0.1.0-p0
     build:
@@ -36,7 +64,9 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/procureflow
       DB_USERNAME: procureflow_app
       DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD for local development}
-      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD for local development}
+      # Migrations are owned by the one-shot service above; the runtime credential cannot
+      # alter the schema and the application refuses to serve an unmigrated database.
+      SPRING_FLYWAY_ENABLED: "false"
       OIDC_ISSUER: http://localhost:${KEYCLOAK_PORT:-8180}/realms/procureflow
       OIDC_JWK_SET_URI: http://keycloak:8080/realms/procureflow/protocol/openid-connect/certs
       FRONTEND_ORIGINS: http://localhost:${FRONTEND_PORT:-4200},http://127.0.0.1:${FRONTEND_PORT:-4200}
@@ -46,6 +76,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     read_only: true
     tmpfs: ["/tmp"]
     cap_drop: ["ALL"]
@@ -94,7 +126,8 @@ services:
       postgres:
         condition: service_healthy
       app:
-        # The application owns migrations; the worker only starts against a migrated database.
+        # The one-shot migrate service owns migrations; the application only validates the
+        # schema with Flyway disabled. The worker starts against a migrated database.
         condition: service_healthy
       rabbitmq:
         condition: service_healthy

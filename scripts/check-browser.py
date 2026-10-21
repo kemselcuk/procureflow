@@ -44,6 +44,14 @@ SERVICE_COMMANDS = ("--profile", "worker")
 EXPECTED_SERVICES = {
     "postgres", "app", "frontend", "notification-worker", "rabbitmq", "keycloak", "mailpit",
 }
+# One-shot schema owner, verified separately: it must have exited 0 before the app serves.
+MIGRATE_SERVICE = "migrate"
+# `docker compose up --wait` fails when an exited one-shot container is itself a wait target,
+# so the long-running services are named explicitly; migrate is awaited through app's
+# service_completed_successfully condition instead.
+RUNNING_SERVICE_TARGETS = (
+    "postgres", "app", "frontend", "keycloak", "notification-worker", "rabbitmq", "mailpit",
+)
 SECRET_NAME_PATTERN = re.compile(r"(?i)(PASSWORD|SECRET|TOKEN)")
 JWT_PATTERN = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 BASIC_AUTH_PATTERN = re.compile(r"(?i)\bBasic\s+[A-Za-z0-9+/=]+")
@@ -306,9 +314,13 @@ def _temp_root() -> Path:
 
 
 def _write_override(path: Path, project: str) -> list[str]:
+    app_tag = f"procureflow-p6-{project[-10:]}-app:local"
     tags = {
         "postgres": f"procureflow-p6-{project[-10:]}-postgres:local",
-        "app": f"procureflow-p6-{project[-10:]}-app:local",
+        "app": app_tag,
+        # The one-shot migrate service runs the same application image; it must use the same
+        # per-run tag so the check never rebuilds or leaves the shared baseline image.
+        "migrate": app_tag,
         "frontend": f"procureflow-p6-{project[-10:]}-frontend:local",
         "notification-worker": f"procureflow-p6-{project[-10:]}-worker:local",
     }
@@ -316,7 +328,7 @@ def _write_override(path: Path, project: str) -> list[str]:
     for service, tag in tags.items():
         lines.extend([f"  {service}:", f"    image: {tag}"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return list(tags.values())
+    return list(dict.fromkeys(tags.values()))
 
 
 @dataclass
@@ -422,6 +434,32 @@ class ComposeFixture:
             time.sleep(min(1.0, max(0.0, deadline.remaining())))
         raise VerificationTimeout(f"The bounded {service} port lookup failed ({last_error})")
 
+    def _verify_migrate_service(self, deadline: Deadline) -> None:
+        """The one-shot migration service must have completed successfully, not merely started."""
+        last_error = "not observed"
+        while not deadline.expired():
+            remaining = deadline.remaining()
+            if remaining <= 0:
+                break
+            result = self.compose(
+                "ps", "--all", "--format", "json", MIGRATE_SERVICE,
+                timeout=min(10.0, remaining), operation="Migrate service inventory",
+            )
+            if result.returncode == 0:
+                try:
+                    entries = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+                except ValueError:
+                    raise VerificationError("The migrate service inventory was not valid JSON") from None
+                if (len(entries) == 1 and entries[0].get("State") == "exited"
+                        and entries[0].get("ExitCode") == 0):
+                    return
+                last_error = "not exited 0"
+            else:
+                last_error = f"exit {result.returncode}"
+            time.sleep(min(1.0, max(0.0, deadline.remaining())))
+        raise VerificationTimeout(
+            f"The one-shot migrate service did not complete successfully ({last_error})")
+
     def _wait_http(self, label: str, url: str, deadline: Deadline,
                    validate: Callable[[str], bool]) -> None:
         last_error = "no response"
@@ -473,10 +511,11 @@ class ComposeFixture:
         self.build_seconds = round(time.monotonic() - started, 2)
 
         result = self.compose(
-            "up", "--wait", "--wait-timeout", "240",
+            "up", "--wait", "--wait-timeout", "240", *RUNNING_SERVICE_TARGETS,
             timeout=deadline.require("Compose startup", 10), operation="Compose startup",
         )
         _require_success(result, "Compose startup")
+        self._verify_migrate_service(Deadline(min(deadline.remaining(), 30)))
 
         started = time.monotonic()
         port_deadline = Deadline(min(deadline.remaining(), 90))

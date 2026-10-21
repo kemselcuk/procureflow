@@ -28,7 +28,9 @@ public class AuditQueries {
     public AuditData.Page page(int page, int size) {
         var actor = access.current();
         actor.requireAdmin();
-        if (page < 0 || size < 1 || size > 100) throw ApiException.invalid("invalid_request");
+        // Same bounded page policy as the request/notification list APIs: an offset beyond the
+        // shared cap is a client error instead of a deep-offset scan.
+        if (page < 0 || page > 1_000_000 || size < 1 || size > 100) throw ApiException.invalid("invalid_request");
         long offset = (long) page * size;
 
         // One statement evaluates the count and the requested page from the same PostgreSQL

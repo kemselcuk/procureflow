@@ -28,10 +28,10 @@ public class AuditController {
 
     @GetMapping
     @Operation(operationId = "getCompanyAudit",
-            description = "Zero-based page, size 1-100. Read-only immutable audit metadata for the caller's current company only, in stable descending (occurred_at, id) order. Entity references do not grant access to the referenced entity; request content, identity claims and raw payloads are never exposed.")
+            description = "Zero-based page (0-1000000), size 1-100. Read-only immutable audit metadata for the caller's current company only, in stable descending (occurred_at, id) order. Entity references do not grant access to the referenced entity; request content, identity claims and raw payloads are never exposed.")
     @ApiResponse(responseCode = "200", description = "Current-company audit metadata page",
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = AuditData.Page.class)))
-    @ApiResponse(responseCode = "400", description = "Invalid page or size; page must be >= 0 and size 1-100 (invalid_request)",
+    @ApiResponse(responseCode = "400", description = "Invalid page or size; page must be >= 0 and <= 1000000, size 1-100 (invalid_request)",
             content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ApiErrors.ErrorBody.class)))
     AuditData.Page list(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
         return queries.page(page, size);

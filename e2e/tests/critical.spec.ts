@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { BrowserContext } from '@playwright/test';
 import { BASE_URL, cents, currentUtcMonth, jwtFacts, label } from '../helpers/config';
 import { criticalTitle } from '../helpers/contract';
 import { check, facts, flushFacts } from '../helpers/facts';
@@ -20,6 +21,7 @@ import {
   BrowserSessions,
   expectVisibleFocus,
   locationFacts,
+  loginAt,
   recordIdentity,
   signIn,
   waitForCleanApp,
@@ -53,6 +55,101 @@ let foreignId = '';
 let employeeDepartmentId = '';
 let primaryCorrelation = '';
 
+/**
+ * Parsed CSP directive map (directive name -> lower-cased tokens). A substring check alone
+ * would accept a later 'unsafe-inline'/'unsafe-eval' addition to script-src.
+ */
+function cspDirectives(header: string): Record<string, string[]> {
+  const directives: Record<string, string[]> = {};
+  for (const part of header.split(';')) {
+    const tokens = part.trim().split(/\s+/).filter((token) => token.length > 0);
+    const name = tokens[0];
+    if (name === undefined) continue;
+    directives[name.toLowerCase()] = tokens.slice(1).map((token) => token.toLowerCase());
+  }
+  return directives;
+}
+
+const WEAK_SCRIPT_TOKENS = new Set(["'unsafe-inline'", "'unsafe-eval'", 'data:', 'blob:', '*']);
+
+/**
+ * Real response-header assertions for the SPA document. The header is the enforced policy;
+ * angular.json keeps the built index free of inline script/style so script-src can stay 'self'.
+ */
+async function assertBrowserSecurityHeaders(context: BrowserContext): Promise<{
+  allPresent: boolean;
+  rootReachable: boolean;
+  headerFacts: Record<string, boolean>;
+}> {
+  const response = await context.request.get(`${BASE_URL}/`, { headers: { Accept: 'text/html' } });
+  expect(response.status(), 'the SPA root must be served over the real frontend').toBe(200);
+  const headers = response.headers();
+  const csp = headers['content-security-policy'] ?? '';
+  const body = await response.text();
+  const directives = cspDirectives(csp);
+  const scriptSrc = directives['script-src'] ?? directives['default-src'] ?? [];
+  const headerFacts = {
+    scriptSrcSelf: csp.includes("script-src 'self'"),
+    scriptSrcSelfOnly: scriptSrc.length === 1 && scriptSrc[0] === "'self'",
+    scriptSrcNoWeakTokens: scriptSrc.every((token) => !WEAK_SCRIPT_TOKENS.has(token)),
+    styleSrcUnsafeInline: csp.includes("style-src 'self' 'unsafe-inline'"),
+    connectSrcSelf: csp.includes("connect-src 'self'"),
+    objectSrcNone: csp.includes("object-src 'none'"),
+    baseUriSelf: csp.includes("base-uri 'self'"),
+    formActionSelf: csp.includes("form-action 'self'"),
+    frameAncestorsNone: csp.includes("frame-ancestors 'none'"),
+    xFrameOptionsDeny: headers['x-frame-options'] === 'DENY',
+    coopSameOrigin: headers['cross-origin-opener-policy'] === 'same-origin',
+    nosniff: headers['x-content-type-options'] === 'nosniff',
+    referrerPolicy: headers['referrer-policy'] === 'strict-origin-when-cross-origin',
+    noInlineScript: !/<script(?![^>]*\bsrc=)[^>]*>/i.test(body),
+    noInlineStyle: !/<style/i.test(body),
+  };
+  const missing = Object.entries(headerFacts).filter(([, present]) => !present).map(([name]) => name);
+  expect(missing, 'the SPA response must carry every required browser-security header').toEqual([]);
+  return { allPresent: missing.length === 0, rootReachable: response.status() === 200, headerFacts };
+}
+
+/**
+ * A foreign document must not be able to frame the product. `frame-ancestors 'none'` is
+ * enforced by the browser on navigation of the nested browsing context, so a rejected
+ * navigation and a frame that stays on its initial empty document are the observables.
+ * The rejection is a CSP decision, not an unreachable origin: the same browser context's
+ * network stack fetched the root document with 200 immediately before this probe.
+ */
+async function assertForeignFrameBlocked(
+  context: BrowserContext,
+  originReachable: boolean,
+): Promise<{
+  blocked: boolean;
+  navigationRejected: boolean;
+  stayedEmpty: boolean;
+}> {
+  expect(originReachable, 'the same-origin root fetch must succeed before the frame probe').toBe(true);
+  const attacker = await context.newPage();
+  try {
+    await attacker.setContent(
+      '<!doctype html><html><body><iframe id="victim" src="about:blank"></iframe></body></html>',
+    );
+    const victim = attacker.frames()[1] ?? await attacker.waitForEvent('frameattached');
+    let navigationRejected = false;
+    try {
+      await victim.goto(`${BASE_URL}/`, { timeout: 15_000 });
+    } catch {
+      navigationRejected = true;
+    }
+    const frameUrl = victim.url();
+    const loaded = frameUrl.startsWith(BASE_URL);
+    const stayedEmpty = frameUrl === 'about:blank' || frameUrl === '';
+    expect(navigationRejected, 'the blocked frame navigation must reject instead of committing').toBe(true);
+    expect(loaded, 'frame-ancestors none must block a foreign iframe from loading the SPA').toBe(false);
+    expect(stayedEmpty, 'the blocked frame must stay on its initial empty document').toBe(true);
+    return { blocked: !loaded, navigationRejected, stayedEmpty };
+  } finally {
+    await attacker.close();
+  }
+}
+
 test.beforeAll(async ({ browser }) => {
   facts.run.browserVersion = browser.version();
   facts.run.month = MONTH;
@@ -62,7 +159,21 @@ test.beforeAll(async ({ browser }) => {
 test(criticalTitle('employee-lifecycle'), async ({ browser }) => {
   const sessions = new BrowserSessions(browser);
   try {
-    const employee = await sessions.login('employee');
+    const employee = await sessions.open();
+    const appOrigin = new URL(BASE_URL).origin;
+    const cspViolations: string[] = [];
+    employee.page.on('console', (message) => {
+      if (message.type() !== 'error') return;
+      const text = message.text();
+      if (!text.includes('Content Security Policy')) return;
+      // The Keycloak login document shares this Page object; only the product origin counts.
+      const source = message.location()?.url ?? '';
+      if (source && !source.startsWith(appOrigin)) return;
+      cspViolations.push(text.replace(/https?:\/\/\S+/g, '[URL]').slice(0, 240));
+    });
+    const security = await assertBrowserSecurityHeaders(employee.context);
+    const frame = await assertForeignFrameBlocked(employee.context, security.rootReachable);
+    await loginAt(employee.page, 'employee');
     const me = await employee.probe.me();
     employeeDepartmentId = me.departmentId;
     recordIdentity('employee', employee.probe, me);
@@ -138,7 +249,14 @@ test(criticalTitle('employee-lifecycle'), async ({ browser }) => {
       actions: history.map((entry) => entry.action),
       selfApprovalStatus: selfApproval.status,
       invalidPrecisionWrote: createPosts > 1,
+      securityHeadersPresent: security.allPresent,
+      securityHeaderFacts: security.headerFacts,
+      foreignFrameBlocked: frame.blocked,
+      foreignFrameNavigationRejected: frame.navigationRejected,
+      foreignFrameStayedEmpty: frame.stayedEmpty,
+      cspViolations: cspViolations.length,
     });
+    expect(cspViolations, 'the real SPA session must not log any CSP violation').toEqual([]);
     expect(history.map((entry) => entry.action)).toEqual([
       'request.created',
       'request.edited',

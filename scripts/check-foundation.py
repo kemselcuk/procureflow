@@ -2,6 +2,7 @@
 """Build/check a disposable local Compose stack, then delete only its own volumes."""
 
 import base64
+import http.client
 import json
 import os
 import re
@@ -13,8 +14,8 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from notification_smoke import (NotificationStack, TransientWaitError,
-                                check_notification_pipeline, wait_for)
+from notification_smoke import (Fixture, NotificationStack, TransientWaitError, api_json,
+                                check_notification_pipeline, login, uuid_in, wait_for)
 from oidc_smoke import check_identity_journey
 
 
@@ -94,6 +95,16 @@ def main():
             ["docker", "compose", "-f", str(ROOT / "compose.yaml"), "--profile", "worker", *arguments],
             cwd=ROOT, env=environment, check=True,
         )
+
+    # The one-shot migrate service is a dependency of app. `docker compose up --wait` fails when
+    # an exited one-shot container is itself a wait target, so the seven long-running services are
+    # named explicitly; migrate is still awaited through app's service_completed_successfully
+    # condition and is verified separately for its exit code.
+    WAIT_TARGETS = ("postgres", "app", "frontend", "keycloak", "notification-worker",
+                    "rabbitmq", "mailpit")
+
+    def compose_up_wait():
+        compose("up", "--wait", "--wait-timeout", "240", *WAIT_TARGETS)
 
     def service_address(service, container_port):
         def query_port():
@@ -246,22 +257,302 @@ def main():
         })
         print("PASS pinned Mailpit image, ephemeral capture and SMTP greeting", flush=True)
 
-    def check_final_stack_state():
-        """All seven disposable services stay up and healthy after the outage/restart cases."""
+    def migrate_exit_state():
+        """The one-shot migration service must have exited successfully, not just started."""
         result = subprocess.run(
             ["docker", "compose", "-f", str(ROOT / "compose.yaml"), "--profile", "worker",
-             "ps", "--format", "json"],
+             "ps", "--all", "--format", "json", "migrate"],
+            cwd=ROOT, env=environment, check=True, capture_output=True, text=True,
+        )
+        entries = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        if len(entries) != 1:
+            raise RuntimeError(f"Expected exactly one migrate container, observed {len(entries)}")
+        entry = entries[0]
+        if entry.get("State") != "exited" or entry.get("ExitCode") != 0:
+            raise RuntimeError(
+                f"The migrate service did not exit successfully: state={entry.get('State')} "
+                f"exit={entry.get('ExitCode')}")
+        return {"state": entry.get("State"), "exitCode": entry.get("ExitCode")}
+
+    def check_migrator_separation():
+        """The long-lived application must not receive the migrator credential."""
+        configuration = compose_config()
+        app_service = configuration["services"]["app"]
+        app_environment = app_service.get("environment") or {}
+        if "MIGRATION_DB_PASSWORD" in app_environment:
+            raise RuntimeError("The resolved app container still receives the migrator credential")
+        if str(app_environment.get("SPRING_FLYWAY_ENABLED", "")).lower() != "false":
+            raise RuntimeError("The application must run with Flyway disabled")
+        migrate_environment = configuration["services"]["migrate"].get("environment") or {}
+        if not migrate_environment.get("MIGRATION_DB_PASSWORD"):
+            raise RuntimeError("The migrate service does not own the migrator credential")
+        dependency = (app_service.get("depends_on") or {}).get("migrate") or {}
+        if dependency.get("condition") != "service_completed_successfully":
+            raise RuntimeError("The app must depend on migrate: service_completed_successfully")
+        running_environment = json.loads(docker_inspect(container_id("app"), "{{json .Config.Env}}"))
+        if any(entry.startswith("MIGRATION_DB_PASSWORD=") for entry in running_environment):
+            raise RuntimeError("The running app container still receives the migrator credential")
+        state = migrate_exit_state()
+        history = notification_stack.owner_sql(
+            "SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1")
+        if not history or history[0][0] != "5":
+            raise RuntimeError(f"The migrated schema is not at the expected version: {history}")
+        print("PASS migrator separation: migrate exited 0, app has no migrator credential and Flyway is disabled",
+              flush=True)
+        return {"migrate": state, "schemaVersion": history[0][0], "appHasMigratorCredential": False,
+                "appFlywayEnabled": False}
+
+    def check_security_headers():
+        """Real HTTP evidence for the nginx browser-security headers and the built index."""
+        request = urllib.request.Request(frontend + "/", headers={"Accept": "text/html"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            headers = {name.lower(): value for name, value in response.headers.items()}
+            body = response.read().decode()
+        csp = headers.get("content-security-policy", "")
+
+        def csp_directives(header):
+            directives = {}
+            for part in header.split(";"):
+                tokens = part.split()
+                if tokens:
+                    directives[tokens[0].lower()] = [token.lower() for token in tokens[1:]]
+            return directives
+
+        directives = csp_directives(csp)
+        script_src = directives.get("script-src", directives.get("default-src", []))
+        weak_script_tokens = {"'unsafe-inline'", "'unsafe-eval'", "data:", "blob:", "*"}
+        required = {
+            "scriptSrcSelf": "script-src 'self'" in csp,
+            # A substring match alone would accept a later 'unsafe-inline'/'unsafe-eval' addition;
+            # the parsed directive must be exactly 'self' and must contain no weak token.
+            "scriptSrcSelfOnly": script_src == ["'self'"],
+            "scriptSrcNoWeakTokens": not (weak_script_tokens & set(script_src)),
+            "styleSrcUnsafeInline": "style-src 'self' 'unsafe-inline'" in csp,
+            "connectSrcSelf": "connect-src 'self'" in csp,
+            "objectSrcNone": "object-src 'none'" in csp,
+            "baseUriSelf": "base-uri 'self'" in csp,
+            "formActionSelf": "form-action 'self'" in csp,
+            "frameAncestorsNone": "frame-ancestors 'none'" in csp,
+            "xFrameOptionsDeny": headers.get("x-frame-options") == "DENY",
+            "coopSameOrigin": headers.get("cross-origin-opener-policy") == "same-origin",
+            "nosniff": headers.get("x-content-type-options") == "nosniff",
+            "referrerPolicy": headers.get("referrer-policy") == "strict-origin-when-cross-origin",
+            "noInlineScript": re.search(r"<script(?![^>]*\bsrc=)[^>]*>", body) is None,
+            "noInlineStyle": "<style" not in body,
+        }
+        failed = sorted(name for name, passed in required.items() if not passed)
+        if failed:
+            raise RuntimeError(f"Browser security headers are incomplete: {failed}")
+        print("PASS browser security headers on /: CSP, frame-ancestors, XFO, COOP and a clean index",
+              flush=True)
+        return {"url": frontend + "/", "checks": required}
+
+    def raw_json_request(base, path, token, body, *, key=None, chunked=False):
+        """Bounded raw JSON request; returns (status, body). Headers and payloads are never logged."""
+        headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json"}
+        if key is not None:
+            headers["Idempotency-Key"] = key
+        connection = http.client.HTTPConnection(base.removeprefix("http://"), timeout=30)
+        try:
+            connection.request("POST", path, body=iter([body]) if chunked else body, headers=headers)
+            response = connection.getresponse()
+            return response.status, response.read().decode(errors="replace")
+        finally:
+            connection.close()
+
+    def check_json_body_bound():
+        """Oversized JSON is refused with 413 before deserialization on both HTTP paths."""
+        token = login(notification_stack, "a-employee")["access_token"]
+        normal = json.dumps({"title": "P8 body bound normal payload",
+                             "justification": "Fictional local-only body-bound acceptance fixture",
+                             "amount": 10.50}).encode()
+        invalid = json.dumps({"title": "", "justification": "", "amount": 0}).encode()
+        oversized = json.dumps({"title": "P8 oversized", "justification": "x" * 20_000,
+                                "amount": 10.50}).encode()
+        chunked_body = json.dumps({"title": "P8 chunked oversized", "justification": "x" * 24_000,
+                                   "amount": 10.50}).encode()
+        # Just above the 64k nginx edge bound; the edge answers with its own body, not problem+json.
+        beyond_nginx = json.dumps({"title": "P8 nginx bound", "justification": "x" * 66_000,
+                                   "amount": 10.50}).encode()
+        observations = {}
+        for label, base in (("app", app), ("frontend", frontend)):
+            status, _ = raw_json_request(base, "/api/requests", token, normal, key=str(uuid.uuid4()))
+            if status != 201:
+                raise RuntimeError(f"A documented normal JSON payload was not accepted on {label} ({status})")
+            observations[label + "Normal"] = status
+            status, payload = raw_json_request(base, "/api/requests", token, invalid, key=str(uuid.uuid4()))
+            if status != 400:
+                raise RuntimeError(f"A small invalid form must still be a 400 on {label}, not {status}")
+            observations[label + "Invalid"] = status
+            status, payload = raw_json_request(base, "/api/requests", token, oversized, key=str(uuid.uuid4()))
+            if status != 413:
+                raise RuntimeError(f"An oversized declared Content-Length was not rejected on {label} ({status})")
+            if "payload_too_large" not in payload:
+                raise RuntimeError(f"The application-side 413 body on {label} is missing the stable error code")
+            observations[label + "OversizedDeclared"] = status
+            status, _ = raw_json_request(base, "/api/requests", token, chunked_body, chunked=True)
+            if status != 413:
+                raise RuntimeError(f"An oversized chunked JSON body was not rejected on {label} ({status})")
+            observations[label + "OversizedChunked"] = status
+        status, payload = raw_json_request(frontend, "/api/requests", token, beyond_nginx)
+        if status != 413:
+            raise RuntimeError(f"The nginx client_max_body_size edge bound did not reject ({status})")
+        if "payload_too_large" in payload:
+            raise RuntimeError("A body above 64k reached the application instead of the nginx edge bound")
+        observations["frontendBeyondNginx"] = status
+        print(f"PASS JSON body bound: normal 201, invalid 400, oversized declared/chunked 413 ({observations})",
+              flush=True)
+        return {"urls": {"app": app + "/api/requests", "frontend": frontend + "/api/requests"},
+                "observations": observations}
+
+    def check_existing_volume_restart():
+        """Restart the same populated stack: migrate re-runs, exits 0 and data survives."""
+        def business_state():
+            rows = notification_stack.owner_sql(
+                "SELECT (SELECT count(*) FROM purchase_request), "
+                "(SELECT count(*) FROM purchase_request WHERE status = 'APPROVED'), "
+                "(SELECT count(*) FROM audit_entry)")
+            return tuple(int(value) for value in rows[0])
+
+        before = business_state()
+        if before[0] < 1 or before[1] < 1 or before[2] < 1:
+            raise RuntimeError(f"The populated volume has no business data to preserve: {before}")
+        compose("stop")
+        compose_up_wait()
+        after = business_state()
+        if before != after:
+            raise RuntimeError(f"Business data changed across the volume-preserving restart: {before} -> {after}")
+        state = migrate_exit_state()
+        print(f"PASS existing-volume restart: migrate exited 0 again and {before} stayed unchanged",
+              flush=True)
+        return {"before": list(before), "after": list(after), "migrate": state}
+
+    def check_scheduler_isolation():
+        """A blocked SMTP runner must not delay outbox publication (independent scheduler slots)."""
+        tokens = {name: login(notification_stack, name)
+                  for name in ("b-employee", "b-manager", "b-finance", "b-admin")}
+        fixture = Fixture(notification_stack, tokens)
+        # The notification pipeline deactivates the b-manager membership in its revocation case;
+        # this isolation fixture needs an active department manager again. The single inactive
+        # company membership is reactivated through the same real admin API as the revocation.
+        status, memberships = api_json(notification_stack, tokens["b-admin"]["access_token"],
+                                       "/api/admin/memberships")
+        if status != 200 or not memberships:
+            raise RuntimeError(f"Reading the isolation fixture memberships failed ({status})")
+        inactive = [entry for entry in memberships if entry.get("active") is False]
+        if len(inactive) > 1:
+            raise RuntimeError(f"Expected at most one revoked fixture membership, observed {len(inactive)}")
+        if inactive:
+            record = inactive[0]
+            status, _ = api_json(notification_stack, tokens["b-admin"]["access_token"],
+                                 f"/api/admin/memberships/{record['id']}",
+                                 {"departmentId": record["departmentId"], "active": True,
+                                  "version": record["version"],
+                                  "roles": record.get("roles") or [],
+                                  "managedDepartmentIds": record.get("managedDepartmentIds") or []},
+                                 "PUT")
+            if status != 200:
+                raise RuntimeError(f"Reactivating the isolation fixture membership failed ({status})")
+        fixture.set_company_budgets()
+        mailpit_container = container_id("mailpit")
+        subprocess.run(["docker", "pause", mailpit_container], cwd=ROOT, check=True, capture_output=True)
+        try:
+            # A paused container keeps its TCP listener in the kernel while its process is
+            # frozen: SMTP connects and then waits for the read timeout, exactly the blocked
+            # I/O that must not occupy the relay's scheduler slot.
+            batch = [fixture.create_and_approve(10, "department", f"P8 scheduler isolation {index}")[0]
+                     for index in range(3)]
+            batch_events = fixture.events_for(batch)
+            if len(batch_events) < 6:
+                raise RuntimeError(f"The isolation fixture committed {len(batch_events)} events, expected at least 6")
+            batch_event_ids = uuid_in([event["id"] for event in batch_events])
+
+            def blocked_sends():
+                rows = notification_stack.worker_sql(
+                    "SELECT count(*) FROM email_job WHERE attempts >= 1 "
+                    f"AND event_id IN ({batch_event_ids})")
+                return int(rows[0][0]) >= 2
+
+            wait_for("two SMTP send attempts against the paused capture", blocked_sends, 60)
+
+            def in_flight_smtp_connections():
+                """ESTABLISHED sockets to the Mailpit SMTP port (IPv4/IPv6) in the worker's netns."""
+                result = subprocess.run(
+                    ["docker", "compose", "-f", str(ROOT / "compose.yaml"), "--profile", "worker",
+                     "exec", "-T", "notification-worker", "cat", "/proc/net/tcp", "/proc/net/tcp6"],
+                    cwd=ROOT, env=environment, check=True, capture_output=True, text=True)
+                established = 0
+                for line in result.stdout.splitlines():
+                    fields = line.split()
+                    if len(fields) < 4 or fields[3] != "01":
+                        continue
+                    if fields[2].rsplit(":", 1)[-1].upper() == "0401":  # 1025
+                        established += 1
+                return established
+
+            wait_for("an in-flight SMTP connection to the paused capture",
+                     lambda: in_flight_smtp_connections() >= 1, 30)
+            in_flight = in_flight_smtp_connections()
+
+            probe_request, _ = fixture.create_and_approve(10, "department", "P8 scheduler isolation probe")
+            probe_events = fixture.events_for([probe_request])
+            if len(probe_events) < 2:
+                raise RuntimeError(f"The probe committed {len(probe_events)} events, expected at least 2")
+            probe = next(event for event in probe_events if event["event_type"] == "request.approved")
+
+            started = time.monotonic()
+
+            def relay_published():
+                rows = notification_stack.worker_sql(
+                    "SELECT state FROM outbox_dispatch WHERE event_id IN (" + uuid_in([probe["id"]]) + ")")
+                return bool(rows) and rows[0][0] == "PUBLISHED"
+
+            wait_for("outbox publication while the SMTP runner is blocked", relay_published, 25)
+            published_seconds = round(time.monotonic() - started, 3)
+        finally:
+            subprocess.run(["docker", "unpause", mailpit_container], cwd=ROOT, check=True, capture_output=True)
+
+        # A paused container cannot run its healthcheck; after unpause the probe must recover
+        # before the fixture completion and final-state assertions. Bounded recovery only: the
+        # container is never recreated and no global/project-wide action is taken. The API URL is
+        # resolved fresh because the random loopback port is re-assigned across a stack restart.
+        def mailpit_recovered():
+            try:
+                if docker_inspect(mailpit_container, "{{.State.Health.Status}}") != "healthy":
+                    return None
+                info = mailpit_api("/api/v1/info")
+                return bool(info) and info.get("Version") == "v1.31.6"
+            except (urllib.error.URLError, OSError, ValueError):
+                return None
+
+        wait_for("the unpaused Mailpit container health and API to recover", mailpit_recovered, 60)
+
+        all_events = [*batch_events, *probe_events]
+        all_ids = [event["id"] for event in all_events]
+        observation = fixture.wait_completed(all_ids, fixture.expected_effects(all_ids), 120)
+        print(f"PASS scheduler isolation: {in_flight} in-flight SMTP connection(s) observed while the "
+              f"capture was paused; relay published the probe event {published_seconds}s after commit; "
+              f"the fixture completed in {observation.seconds:.1f}s and Mailpit recovered healthy", flush=True)
+        return {"publishedWhileSmtpBlockedSeconds": published_seconds,
+                "inFlightSmtpConnections": in_flight,
+                "mailpitRecoveredHealthy": True,
+                "fixtureEvents": len(all_ids), "completionSeconds": observation.seconds}
+
+    def check_final_stack_state():
+        """All seven long-running disposable services stay up and healthy; migrate still exited 0."""
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(ROOT / "compose.yaml"), "--profile", "worker",
+             "ps", "--all", "--format", "json"],
             cwd=ROOT, env=environment, check=True, capture_output=True, text=True,
         )
         entries = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
         states = {entry.get("Service"): entry for entry in entries}
+        running = {service: entry for service, entry in states.items() if entry.get("State") == "running"}
         expected_services = {"postgres", "app", "frontend", "notification-worker", "rabbitmq"}
         expected_services |= {"keycloak", "mailpit"}
-        if set(states) != expected_services:
-            raise RuntimeError(f"Final service set is not the seven disposable services: {sorted(states)}")
-        for service, entry in sorted(states.items()):
-            if entry.get("State") != "running":
-                raise RuntimeError(f"Final state for {service} is not running: {entry.get('State')}")
+        if set(running) != expected_services:
+            raise RuntimeError(f"Final running service set is not the seven long-running services: {sorted(running)}")
+        for service, entry in sorted(running.items()):
             health = entry.get("Health") or ""
             if health not in ("", "healthy"):
                 raise RuntimeError(f"Final health for {service} is not healthy: {health}")
@@ -292,10 +583,12 @@ def main():
         digests = json.loads(docker_inspect(image_id, "{{json .RepoDigests}}"))
         if MAILPIT_REPO_DIGEST not in digests:
             raise RuntimeError(f"Final Mailpit image digests do not contain the pin: {digests}")
+        migrate = migrate_exit_state()
         summary = {service: {"state": entry.get("State"), "health": entry.get("Health") or "none"}
-                   for service, entry in sorted(states.items())}
-        print(f"PASS final seven-service state after restart cases: {summary}", flush=True)
-        return {"services": summary, "mailpitDigestPinned": True}
+                   for service, entry in sorted(running.items())}
+        print(f"PASS final seven-service state after restart cases: {summary} "
+              f"(migrate exited {migrate['exitCode']})", flush=True)
+        return {"services": summary, "mailpitDigestPinned": True, "migrate": migrate}
 
     def verify_cleanup():
         checks = {}
@@ -317,7 +610,7 @@ def main():
     results = []
     try:
         compose("build")
-        compose("up", "--wait", "--wait-timeout", "240")
+        compose_up_wait()
         app = base_url("app")
         frontend = base_url("frontend")
         worker = base_url("notification-worker", 8081)
@@ -394,8 +687,6 @@ def main():
             compose("exec", "-T", service, "java", "-version")
         compose("exec", "-T", "frontend", "nginx", "-t")
         provider = "http://localhost:" + environment["KEYCLOAK_PORT"] + "/realms/procureflow"
-        oidc = check_identity_journey(provider, "http://localhost:" + environment["FRONTEND_PORT"], environment["DEMO_PASSWORD"])
-
         notification_stack = NotificationStack(
             root=ROOT,
             compose_argv=["docker", "compose", "-f", str(ROOT / "compose.yaml"), "--profile", "worker"],
@@ -408,8 +699,26 @@ def main():
             rabbitmq_request=rabbitmq_request,
             mailpit_api=mailpit_api,
         )
+
+        migrator = check_migrator_separation()
+        results.append({"case": "migrator-separation", **migrator})
+
+        security_headers = check_security_headers()
+        results.append({"case": "security-headers", **security_headers})
+
+        body_bound = check_json_body_bound()
+        results.append({"case": "json-body-bound", **body_bound})
+
+        oidc = check_identity_journey(provider, "http://localhost:" + environment["FRONTEND_PORT"], environment["DEMO_PASSWORD"])
+
         notification = check_notification_pipeline(notification_stack)
         results.append({"case": "notification-pipeline", "caseCount": len(notification["cases"])})
+
+        restart = check_existing_volume_restart()
+        results.append({"case": "existing-volume-restart", **restart})
+
+        isolation = check_scheduler_isolation()
+        results.append({"case": "scheduler-isolation", **isolation})
 
         final_state = check_final_stack_state()
     except Exception:
@@ -436,6 +745,7 @@ def main():
         "project": project,
         "checks": results,
         "healthyServices": 7,
+        "migrateService": migrator["migrate"],
         "oidc": oidc,
         "notification": notification,
         "finalStackState": final_state,

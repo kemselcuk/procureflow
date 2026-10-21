@@ -3,6 +3,7 @@ package com.procureflow.app.config;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.DispatcherType;
 import java.util.List;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,7 +19,14 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+/**
+ * The API security chain exists only for the servlet application. The one-shot migrate service
+ * runs the same image with {@code spring.main.web-application-type=none}, where no
+ * {@code HttpSecurity} bean exists and this configuration must not be instantiated. The bound
+ * {@link SecuritySettings} properties stay available through {@link SecuritySettingsConfiguration}.
+ */
 @Configuration(proxyBeanMethods = false)
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @EnableConfigurationProperties(SecuritySettings.class)
 public class SecurityConfiguration {
     @Bean
