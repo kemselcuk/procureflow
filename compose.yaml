@@ -169,9 +169,15 @@ services:
   rabbitmq:
     image: rabbitmq:4.3.6-management@sha256:54cb013d76cd1fd6c0a0708f34062ad61c452bb6f016b434c6c33f1a765d2b58
     profiles: ["worker"]
+    # RabbitMQ derives both its node name and its mnesia directory from the hostname. A fixed
+    # identity lets a recreated container on a retained volume reopen the same durable queues.
+    # Changing the hostname or node name on an existing populated volume is a deliberate
+    # migration, never automatic.
+    hostname: procureflow-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: procureflow
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD for local development}
+      RABBITMQ_NODENAME: rabbit@procureflow-rabbitmq
     ports:
       - "127.0.0.1:${RABBITMQ_AMQP_PORT:-5672}:5672"
       - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
