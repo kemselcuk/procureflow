@@ -75,13 +75,30 @@ public class DirectoryService {
         return new DepartmentView(id, input.name().strip());
     }
 
+    /**
+     * One bulk statement per company reads every membership with its roles and managed
+     * departments from the same snapshot; the per-member helper is kept only for single-row
+     * command results.
+     */
     @Transactional(readOnly = true)
     public List<MembershipView> memberships() {
         var actor = access.current();
         actor.requireAdmin();
-        var ids = jdbc.query("SELECT id FROM membership WHERE company_id = ? ORDER BY id",
-                (rs, index) -> rs.getObject(1, UUID.class), actor.companyId());
-        return ids.stream().map(id -> membership(actor.companyId(), id)).toList();
+        return jdbc.query("""
+                SELECT m.id, m.identity_id, m.department_id, m.active, m.version,
+                       ARRAY(SELECT r.role FROM membership_role r
+                             WHERE r.company_id = m.company_id AND r.membership_id = m.id ORDER BY r.role) AS roles,
+                       ARRAY(SELECT d.department_id FROM manager_department d
+                             WHERE d.company_id = m.company_id AND d.membership_id = m.id
+                             ORDER BY d.department_id) AS managed_department_ids
+                FROM membership m
+                WHERE m.company_id = ?
+                ORDER BY m.id
+                """, (rs, index) -> new MembershipView(rs.getObject("id", UUID.class),
+                rs.getObject("identity_id", UUID.class), rs.getObject("department_id", UUID.class),
+                rs.getBoolean("active"), rs.getLong("version"),
+                AssignmentSets.roles(rs, "roles"), AssignmentSets.departments(rs, "managed_department_ids")),
+                actor.companyId());
     }
 
     @Transactional

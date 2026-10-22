@@ -49,3 +49,8 @@ app:
     jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:8180/realms/procureflow/protocol/openid-connect/certs}
     audience: procureflow-api
     allowed-origins: ${FRONTEND_ORIGINS:http://localhost:4200,http://127.0.0.1:4200}
+  schema:
+    # Latest Flyway version the running application requires. Startup fails closed when the
+    # database is missing this version or has a different one; the one-shot migrate service owns
+    # the migration itself.
+    expected-version: ${APP_SCHEMA_EXPECTED_VERSION:6}

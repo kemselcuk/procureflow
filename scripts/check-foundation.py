@@ -295,7 +295,7 @@ def main():
         state = migrate_exit_state()
         history = notification_stack.owner_sql(
             "SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1")
-        if not history or history[0][0] != "5":
+        if not history or history[0][0] != "6":
             raise RuntimeError(f"The migrated schema is not at the expected version: {history}")
         print("PASS migrator separation: migrate exited 0, app has no migrator credential and Flyway is disabled",
               flush=True)

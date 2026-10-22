@@ -43,18 +43,35 @@ public class BudgetService {
         return budgets.assignedMonth(actor.companyId(), period, actor.managedDepartmentIds()).stream().map(MonthlyBudget::view).toList();
     }
 
+    /**
+     * Normal path is unchanged: an existing period row is locked, the limit is validated against
+     * the committed usage and the change is audited. When the period does not exist yet, the row
+     * is created with a conflict-safe insert; a concurrent creator loses deterministically with a
+     * defined 409 conflict instead of an unhandled constraint violation, and only the winning
+     * creation is audited. The usage invariant is untouched either way.
+     */
     @Transactional
     public BudgetView setLimit(UUID department, String month, LimitInput input) {
         var actor = access.command(false);
         actor.requireAdmin();
         directory.requireDepartment(actor.companyId(), department);
         var period = period(month);
-        var budget = budgets.lockPeriod(actor.companyId(), department, period)
-                .orElseGet(() -> new MonthlyBudget(actor.companyId(), department, period, input.limitAmount()));
-        budget.changeLimit(input.limitAmount());
-        budgets.saveAndFlush(budget);
-        audit.record(actor, "budget.limit_set", budget.view().id());
-        return budget.view();
+        var existing = budgets.lockPeriod(actor.companyId(), department, period);
+        if (existing.isPresent()) {
+            var budget = existing.get();
+            budget.changeLimit(input.limitAmount());
+            budgets.saveAndFlush(budget);
+            audit.record(actor, "budget.limit_set", budget.view().id());
+            return budget.view();
+        }
+        var id = UUID.randomUUID();
+        if (budgets.insertIfAbsent(id, actor.companyId(), department, period, input.limitAmount()) == 0) {
+            throw ApiException.conflict("data_conflict");
+        }
+        var created = budgets.lockPeriod(actor.companyId(), department, period)
+                .orElseThrow(() -> new IllegalStateException("Newly inserted budget period is not visible in this transaction"));
+        audit.record(actor, "budget.limit_set", created.view().id());
+        return created.view();
     }
 
     private LocalDate period(String value) {

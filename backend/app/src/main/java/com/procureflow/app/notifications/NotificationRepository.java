@@ -1,9 +1,11 @@
 package com.procureflow.app.notifications;
 
+import com.procureflow.app.config.PageBounds;
 import com.procureflow.app.identity.Actor;
 import com.procureflow.app.shared.ApiException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -19,26 +21,47 @@ class NotificationRepository {
         this.named = new NamedParameterJdbcTemplate(jdbc);
     }
 
+    /**
+     * One statement evaluates the scoped page and its total from the same PostgreSQL snapshot, so
+     * the returned {@code total} always matches the page contents even while rows are inserted
+     * concurrently. The join, scope and ordering are unchanged from the previous implementation.
+     */
     NotificationData.Page page(Actor actor, int page, int size) {
-        if (page < 0 || page > 1_000_000 || size < 1 || size > 100) throw ApiException.invalid("invalid_page");
-        var total = jdbc.queryForObject("""
-                SELECT count(*) FROM in_app_notification WHERE company_id = ? AND identity_id = ?
-                """, Long.class, actor.companyId(), actor.identityId());
+        long offset = PageBounds.offset(page, size, "invalid_page");
         // Metadata comes from the same-company outbox event; the notification list never reads purchase content.
-        var items = jdbc.query("""
-                SELECT n.id, n.event_id, e.event_type, e.request_id, e.correlation_id, e.occurred_at,
-                       n.created_at, n.read_at
-                FROM in_app_notification n
-                JOIN outbox_event e ON e.company_id = n.company_id AND e.id = n.event_id
-                WHERE n.company_id = ? AND n.identity_id = ?
-                ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?
-                """, (rs, index) -> new NotificationData.Item(rs.getObject("id", UUID.class),
-                        rs.getObject("event_id", UUID.class), rs.getString("event_type"),
-                        rs.getObject("request_id", UUID.class), rs.getObject("correlation_id", UUID.class),
-                        rs.getTimestamp("occurred_at").toInstant(), rs.getTimestamp("created_at").toInstant(),
-                        rs.getTimestamp("read_at") == null ? null : rs.getTimestamp("read_at").toInstant()),
-                actor.companyId(), actor.identityId(), size, (long) page * size);
-        return new NotificationData.Page(page, size, Objects.requireNonNull(total), items);
+        var sql = """
+                WITH scoped AS (
+                    SELECT n.id, n.event_id, e.event_type, e.request_id, e.correlation_id, e.occurred_at,
+                           n.created_at, n.read_at
+                    FROM in_app_notification n
+                    JOIN outbox_event e ON e.company_id = n.company_id AND e.id = n.event_id
+                    WHERE n.company_id = :company AND n.identity_id = :identity
+                    ORDER BY n.created_at DESC, n.id DESC LIMIT :size OFFSET :offset
+                ), total AS (
+                    SELECT count(*) AS total FROM in_app_notification
+                    WHERE company_id = :company AND identity_id = :identity
+                )
+                SELECT t.total, s.id, s.event_id, s.event_type, s.request_id, s.correlation_id, s.occurred_at,
+                       s.created_at, s.read_at
+                FROM total t LEFT JOIN scoped s ON true
+                ORDER BY s.created_at DESC NULLS LAST, s.id DESC NULLS LAST
+                """;
+        return named.query(sql, Map.of("company", actor.companyId(), "identity", actor.identityId(),
+                "size", size, "offset", offset), resultSet -> {
+            long total = 0;
+            var items = new ArrayList<NotificationData.Item>();
+            while (resultSet.next()) {
+                total = resultSet.getLong("total");
+                var id = resultSet.getObject("id", UUID.class);
+                if (id == null) continue;
+                items.add(new NotificationData.Item(id, resultSet.getObject("event_id", UUID.class),
+                        resultSet.getString("event_type"), resultSet.getObject("request_id", UUID.class),
+                        resultSet.getObject("correlation_id", UUID.class),
+                        resultSet.getTimestamp("occurred_at").toInstant(), resultSet.getTimestamp("created_at").toInstant(),
+                        resultSet.getTimestamp("read_at") == null ? null : resultSet.getTimestamp("read_at").toInstant()));
+            }
+            return new NotificationData.Page(page, size, total, List.copyOf(items));
+        });
     }
 
     /**

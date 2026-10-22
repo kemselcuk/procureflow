@@ -1,7 +1,7 @@
 package com.procureflow.app.audit;
 
+import com.procureflow.app.config.PageBounds;
 import com.procureflow.app.identity.ActorAccess;
-import com.procureflow.app.shared.ApiException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -30,8 +30,7 @@ public class AuditQueries {
         actor.requireAdmin();
         // Same bounded page policy as the request/notification list APIs: an offset beyond the
         // shared cap is a client error instead of a deep-offset scan.
-        if (page < 0 || page > 1_000_000 || size < 1 || size > 100) throw ApiException.invalid("invalid_request");
-        long offset = (long) page * size;
+        long offset = PageBounds.offset(page, size, "invalid_request");
 
         // One statement evaluates the count and the requested page from the same PostgreSQL
         // snapshot. That keeps the response internally consistent without a repeatable-read

@@ -60,7 +60,7 @@ class NotificationDeliverySchemaIT {
         // Owned fixture only, committed before V5, so dispatch backfill is exercised on a real old event.
         old = fixture();
 
-        var upgrade = Flyway.configure().dataSource(migration).load();
+        var upgrade = Flyway.configure().dataSource(migration).target("5").load();
         assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(upgrade.info().current().getVersion().getVersion()).isEqualTo("5");
         upgrade.validate();
