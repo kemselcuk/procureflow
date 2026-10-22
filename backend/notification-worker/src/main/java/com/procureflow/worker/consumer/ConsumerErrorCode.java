@@ -6,9 +6,10 @@ package com.procureflow.worker.consumer;
  *
  * <p>The diagnostic table has no explicit state column, so the quarantine convention is expressed
  * by the code and the attempt counter: a permanent code is terminal at its first record, while
- * {@link #MATERIALIZATION_FAILED} is the bounded transient code and becomes terminal once its
- * recorded {@code attempts} value reaches {@code worker.consumer.max-attempts}. Any diagnostic row
- * satisfying one of those two rules is a durable quarantine record.
+ * {@link #MATERIALIZATION_FAILED} and {@link #UNHANDLED_CONSUMER_FAILURE} are the bounded transient
+ * codes and become terminal once their recorded {@code attempts} value reaches
+ * {@code worker.consumer.max-attempts}. Any diagnostic row satisfying one of those rules is a
+ * durable quarantine record.
  */
 public enum ConsumerErrorCode {
     /** Unparseable, oversized or structurally invalid input; never linked to a canonical event. */
@@ -28,7 +29,13 @@ public enum ConsumerErrorCode {
     /** The canonical envelope contradicts the independent recipient table snapshot. */
     RECIPIENT_SNAPSHOT_MISMATCH("recipient_snapshot_mismatch", true),
     /** A transient database or transaction failure while materializing; bounded by attempts. */
-    MATERIALIZATION_FAILED("materialization_failed", false);
+    MATERIALIZATION_FAILED("materialization_failed", false),
+    /**
+     * An unexpected runtime failure escaped the handled consumer paths. The throwable is never
+     * recorded or logged; only this fixed code and the sanitized fingerprint carry the evidence.
+     * Bounded by attempts like the other transient code.
+     */
+    UNHANDLED_CONSUMER_FAILURE("unhandled_consumer_failure", false);
 
     private final String code;
     private final boolean permanent;
@@ -46,7 +53,7 @@ public enum ConsumerErrorCode {
         return permanent;
     }
 
-    /** A permanent code is terminal immediately; the transient code at the configured attempt cap. */
+    /** A permanent code is terminal immediately; a transient code at the configured attempt cap. */
     public boolean terminalAt(int attempts, int maxAttempts) {
         return permanent || attempts >= maxAttempts;
     }

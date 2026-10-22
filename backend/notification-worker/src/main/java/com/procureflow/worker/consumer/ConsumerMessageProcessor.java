@@ -23,20 +23,23 @@ import org.springframework.stereotype.Component;
  * <p><strong>Bounded retry and durable quarantine.</strong> A transient database failure rolls the
  * materialization transaction back, then one sanitized diagnostic row is written in a separate short
  * transaction and the delivery is retried at most {@code worker.consumer.max-attempts} times with an
- * interruptible exponential backoff between attempts. The durable attempt count, not only the
- * RabbitMQ redelivered flag, limits a redelivery after a crash. Once the cap is reached, the
- * diagnostic row is the quarantine record and the delivery is acknowledged; a later redelivery of
- * such an exhausted message is recorded as an observed retry without re-attempting materialization.
- * If neither normal effects nor a quarantine record can be committed, the method returns
- * {@code false} and the delivery stays unacknowledged for recovery. Interruption (shutdown)
- * also leaves the delivery unacknowledged.
+ * interruptible exponential backoff between attempts. An unexpected runtime failure that escapes the
+ * normal validation and store paths is bounded by the same attempt mechanism under
+ * {@link ConsumerErrorCode#UNHANDLED_CONSUMER_FAILURE}; its throwable is never inspected, logged or
+ * persisted. The durable attempt count, not only the RabbitMQ redelivered flag, limits a redelivery
+ * after a crash. Once the cap is reached, the diagnostic row is the quarantine record and the
+ * delivery is acknowledged; a later redelivery of such an exhausted message is recorded as an
+ * observed retry without re-attempting materialization. If neither normal effects nor a quarantine
+ * record can be committed, the method returns {@code false} and the delivery stays unacknowledged for
+ * recovery. Interruption (shutdown) also leaves the delivery unacknowledged.
  *
  * <p><strong>The in-process attempt counter is never terminal proof.</strong> An ACK without effects
  * requires committed evidence: a diagnostic row for the exact fingerprint whose stored code and
  * attempt value reached the terminal threshold. When the diagnostic write itself fails, the local
  * counter may run out while the durable counter stays below the cap; the method then returns
  * {@code false} instead of acknowledging, so a worker crash, restart or the listener's retained
- * delivery retry (see {@link NotificationQueueListener}) can still complete the attempt budget.
+ * delivery retry (see {@link NotificationQueueListener}, still the final safety net for exceptions
+ * thrown outside this method) can still complete the attempt budget.
  *
  * <p>The diagnostic channel column is not channel-specific for this consumer: event-level failures
  * are recorded with the fixed {@code IN_APP} convention because the materialization transaction
@@ -66,7 +69,15 @@ public class ConsumerMessageProcessor {
         if (body.length > properties.maxBodyBytes()) {
             return quarantine(Scope.raw(body), ConsumerErrorCode.MALFORMED_MESSAGE);
         }
-        ConsumerEnvelopeParser.Result parsed = parser.parse(body);
+        ConsumerEnvelopeParser.Result parsed;
+        try {
+            parsed = parser.parse(body);
+        } catch (RuntimeException unexpected) {
+            // The parser contract is to report invalid input, so an escaping throwable is a real
+            // unexpected failure. No envelope identity exists yet; retain the delivery and record
+            // bounded raw-body evidence instead of acknowledging unread input.
+            return unparsedFailure(body);
+        }
         if (!parsed.valid()) {
             return quarantine(Scope.raw(body), ConsumerErrorCode.MALFORMED_MESSAGE);
         }
@@ -74,14 +85,13 @@ public class ConsumerMessageProcessor {
         String rawHash = ConsumerFailureFingerprint.forRawBody(body, ConsumerErrorCode.MATERIALIZATION_FAILED);
         String eventHash = ConsumerFailureFingerprint.forEvent(envelope.companyId(), envelope.eventId(),
                 ConsumerErrorCode.MATERIALIZATION_FAILED);
-        int durableAttempts;
-        try {
-            durableAttempts = Math.max(attemptsFor(rawHash), attemptsFor(eventHash));
-        } catch (ConsumerStoreException e) {
-            log.warn("Consumer attempt evidence unavailable ({}); a fresh bounded local attempt budget applies",
-                    e.reasonCode());
-            durableAttempts = 0;
-        }
+        String unhandledRawHash = ConsumerFailureFingerprint.forRawBody(body,
+                ConsumerErrorCode.UNHANDLED_CONSUMER_FAILURE);
+        String unhandledEventHash = ConsumerFailureFingerprint.forEvent(envelope.companyId(), envelope.eventId(),
+                ConsumerErrorCode.UNHANDLED_CONSUMER_FAILURE);
+        int durableAttempts = transientAttempts(eventHash, rawHash, ConsumerErrorCode.MATERIALIZATION_FAILED);
+        int unhandledAttempts = transientAttempts(unhandledEventHash, unhandledRawHash,
+                ConsumerErrorCode.UNHANDLED_CONSUMER_FAILURE);
         int unrecordedFailures = 0;
         CanonicalEvent canonical = null;
         while (true) {
@@ -89,71 +99,158 @@ public class ConsumerMessageProcessor {
             // materialization and acknowledge. The local counter below is a work budget, never
             // terminal evidence: if the diagnostic write fails, no ACK may be derived from it.
             if (ConsumerErrorCode.MATERIALIZATION_FAILED.terminalAt(durableAttempts, properties.maxAttempts())) {
-                return closeExhausted(envelope, rawHash, eventHash);
+                return closeExhausted(envelope, rawHash, eventHash, ConsumerErrorCode.MATERIALIZATION_FAILED);
             }
+            if (ConsumerErrorCode.UNHANDLED_CONSUMER_FAILURE.terminalAt(unhandledAttempts,
+                    properties.maxAttempts())) {
+                return closeExhausted(envelope, unhandledRawHash, unhandledEventHash,
+                        ConsumerErrorCode.UNHANDLED_CONSUMER_FAILURE);
+            }
+            ConsumerStore.MaterializationResult result;
             try {
                 canonical = store.findCanonical(envelope.companyId(), envelope.eventId()).orElse(null);
                 ConsumerEnvelope canonicalEnvelope = validated(transport, envelope, canonical);
-                ConsumerStore.MaterializationResult result =
-                        store.materialize(canonical, canonicalEnvelope.recipients());
-                logMaterialized(envelope, result);
-                instrumentation.afterMaterializationCommit(envelope.eventId());
-                return true;
+                result = store.materialize(canonical, canonicalEnvelope.recipients());
             } catch (PermanentFailure failure) {
                 return quarantine(Scope.of(body, envelope, canonical), failure.code());
             } catch (ConsumerStoreException e) {
-                ConsumerErrorCode code = ConsumerErrorCode.MATERIALIZATION_FAILED;
-                Scope scope = Scope.of(body, envelope, canonical);
-                boolean terminalCommitted = false;
-                try {
-                    int persisted = store.recordDiagnostic(scope.fingerprint(code), scope.companyId(),
-                            scope.eventId(), code);
-                    unrecordedFailures = 0;
-                    terminalCommitted = code.terminalAt(persisted, properties.maxAttempts());
-                    if (terminalCommitted) {
-                        log.warn("Materialization attempt budget exhausted and its durable quarantine record "
-                                + "committed for event={}; acknowledging without effects", envelope.eventId());
-                    }
-                } catch (ConsumerStoreException recordFailure) {
-                    unrecordedFailures++;
-                    log.warn("Transient consumer failure could not be recorded ({}/{} reason={}); the local "
-                            + "attempt budget is not terminal evidence", unrecordedFailures,
-                            properties.maxAttempts(), recordFailure.reasonCode());
-                    if (unrecordedFailures >= properties.maxAttempts()) {
-                        log.error("Neither normal effects nor a quarantine record could be committed for "
-                                + "event={}; leaving the delivery unacknowledged for recovery",
-                                envelope.eventId());
-                        return false;
-                    }
-                }
-                if (terminalCommitted) {
+                FailureRecord recorded = recordFailure(Scope.of(body, envelope, canonical),
+                        ConsumerErrorCode.MATERIALIZATION_FAILED, envelope.eventId(), unrecordedFailures,
+                        durableAttempts);
+                if (recorded.terminal()) {
                     return true;
                 }
-                durableAttempts = durableAttempts(eventHash, rawHash, durableAttempts);
+                if (recorded.exhausted()) {
+                    return false;
+                }
+                unrecordedFailures = recorded.unrecordedFailures();
+                durableAttempts = durableAttempts(eventHash, rawHash,
+                        ConsumerErrorCode.MATERIALIZATION_FAILED, recorded.durableAttempts());
                 if (!interruptibleSleep(properties.retryDelayMillis(durableAttempts + 1))) {
                     return false;
                 }
+                continue;
+            } catch (RuntimeException unexpected) {
+                // Never log the throwable, body, headers or raw exception text: an unexpected
+                // failure can embed any of them. The fixed code and sanitized fingerprint are the
+                // only durable evidence, written in a short transaction of their own.
+                FailureRecord recorded = recordFailure(Scope.of(body, envelope, canonical),
+                        ConsumerErrorCode.UNHANDLED_CONSUMER_FAILURE, envelope.eventId(), unrecordedFailures,
+                        unhandledAttempts);
+                if (recorded.terminal()) {
+                    return true;
+                }
+                if (recorded.exhausted()) {
+                    return false;
+                }
+                unrecordedFailures = recorded.unrecordedFailures();
+                unhandledAttempts = durableAttempts(unhandledEventHash, unhandledRawHash,
+                        ConsumerErrorCode.UNHANDLED_CONSUMER_FAILURE, recorded.durableAttempts());
+                if (!interruptibleSleep(properties.retryDelayMillis(unhandledAttempts + 1))) {
+                    return false;
+                }
+                continue;
             }
+            logMaterialized(envelope, result);
+            instrumentation.afterMaterializationCommit(envelope.eventId());
+            return true;
         }
     }
 
-    /** Re-reads the durable attempt evidence, keeping the last known count when the read fails. */
-    private int durableAttempts(String eventHash, String rawHash, int fallback) {
+    /**
+     * Re-reads the durable attempt evidence for one transient code, keeping the last known count when
+     * the read fails.
+     */
+    private int durableAttempts(String eventHash, String rawHash, ConsumerErrorCode code, int fallback) {
         try {
-            return Math.max(fallback, Math.max(attemptsFor(eventHash), attemptsFor(rawHash)));
+            return Math.max(fallback, Math.max(attemptsFor(eventHash, code), attemptsFor(rawHash, code)));
         } catch (ConsumerStoreException readFailure) {
-            log.warn("Consumer attempt evidence re-read failed ({}); keeping the last durable count",
-                    readFailure.reasonCode());
+            log.warn("Consumer attempt evidence re-read failed for code={} ({}); keeping the last durable count",
+                    code.code(), readFailure.reasonCode());
             return fallback;
         }
     }
 
-    /** Durable attempts for the transient code at one fingerprint, exact code verified. */
-    private int attemptsFor(String payloadHash) {
+    /** Reads the larger durable attempt count of the event/raw fingerprints for one transient code. */
+    private int transientAttempts(String eventHash, String rawHash, ConsumerErrorCode code) {
+        try {
+            return Math.max(attemptsFor(eventHash, code), attemptsFor(rawHash, code));
+        } catch (ConsumerStoreException e) {
+            log.warn("Consumer attempt evidence unavailable for code={} ({}); a fresh bounded local attempt "
+                    + "budget applies", code.code(), e.reasonCode());
+            return 0;
+        }
+    }
+
+    /** Durable attempts for the exact transient code at one fingerprint, code verified. */
+    private int attemptsFor(String payloadHash, ConsumerErrorCode code) {
         return store.diagnosticEvidence(payloadHash)
-                .filter(evidence -> ConsumerErrorCode.MATERIALIZATION_FAILED.code().equals(evidence.errorCode()))
+                .filter(evidence -> code.code().equals(evidence.errorCode()))
                 .map(ConsumerStore.DiagnosticEvidence::attempts)
                 .orElse(0);
+    }
+
+    /**
+     * Records one sanitized failure in a short transaction of its own and reports the durable
+     * decision. The throwable is never inspected or logged; only the fixed code, its fingerprint and
+     * the durable attempt value are used. A record that cannot be written is never terminal evidence:
+     * after the configured number of consecutive write failures the delivery stays unacknowledged.
+     */
+    private FailureRecord recordFailure(Scope scope, ConsumerErrorCode code, UUID eventId,
+                                        int unrecordedFailures, int durableAttempts) {
+        String fingerprint = scope.fingerprint(code);
+        try {
+            int persisted = store.recordDiagnostic(fingerprint, scope.companyId(), scope.eventId(), code);
+            boolean terminal = code.terminalAt(persisted, properties.maxAttempts());
+            if (terminal) {
+                log.warn("Consumer failure attempt budget exhausted and its durable quarantine record committed "
+                        + "for code={} fingerprint={} event={}; acknowledging without effects", code.code(),
+                        fingerprint, eventId);
+            } else {
+                log.warn("Recorded transient consumer failure code={} fingerprint={} event={} attempts={}",
+                        code.code(), fingerprint, eventId, persisted);
+            }
+            return new FailureRecord(terminal, false, 0, Math.max(durableAttempts, persisted));
+        } catch (ConsumerStoreException recordFailure) {
+            int failures = unrecordedFailures + 1;
+            log.warn("Transient consumer failure could not be recorded code={} ({}/{} reason={}); the local "
+                    + "attempt budget is not terminal evidence", code.code(), failures, properties.maxAttempts(),
+                    recordFailure.reasonCode());
+            if (failures >= properties.maxAttempts()) {
+                log.error("Neither normal effects nor a quarantine record could be committed for code={} "
+                        + "event={}; leaving the delivery unacknowledged for recovery", code.code(), eventId);
+                return new FailureRecord(false, true, failures, durableAttempts);
+            }
+            return new FailureRecord(false, false, failures, durableAttempts);
+        }
+    }
+
+    /**
+     * Bounded raw-scope path for an unexpected parser failure, where no envelope identity exists.
+     * Each retained-delivery cycle records one attempt; the delivery is acknowledged only when that
+     * short transaction committed the terminal attempt value, and a failed record leaves it
+     * unacknowledged.
+     */
+    private boolean unparsedFailure(byte[] body) {
+        ConsumerErrorCode code = ConsumerErrorCode.UNHANDLED_CONSUMER_FAILURE;
+        Scope scope = Scope.raw(body);
+        String fingerprint = scope.fingerprint(code);
+        try {
+            int attempts = store.recordDiagnostic(fingerprint, null, null, code);
+            boolean terminal = code.terminalAt(attempts, properties.maxAttempts());
+            if (terminal) {
+                log.warn("Unhandled consumer failure before envelope parsing reached the durable attempt cap; "
+                        + "acknowledging without effects");
+            } else {
+                log.warn("Recorded unhandled consumer failure before envelope parsing code={} fingerprint={} "
+                        + "attempts={}", code.code(), fingerprint, attempts);
+            }
+            return terminal;
+        } catch (ConsumerStoreException e) {
+            log.warn("Unhandled consumer failure before envelope parsing could not be recorded ({})",
+                    e.reasonCode());
+            return false;
+        }
     }
 
     private ConsumerEnvelope validated(MessageProperties transport, ConsumerEnvelope received,
@@ -236,39 +333,38 @@ public class ConsumerMessageProcessor {
      * this is what prevents a poison redelivery loop after a restart. The re-read requires the exact
      * fingerprint and code at or above the terminal threshold, not merely any existing row.
      */
-    private boolean closeExhausted(ConsumerEnvelope envelope, String rawHash, String eventHash) {
+    private boolean closeExhausted(ConsumerEnvelope envelope, String rawHash, String eventHash,
+                                   ConsumerErrorCode code) {
         int maxAttempts = properties.maxAttempts();
         try {
-            boolean eventExhausted = terminalEvidenceAt(eventHash, maxAttempts);
-            boolean rawExhausted = terminalEvidenceAt(rawHash, maxAttempts);
+            boolean eventExhausted = terminalEvidenceAt(eventHash, code, maxAttempts);
+            boolean rawExhausted = terminalEvidenceAt(rawHash, code, maxAttempts);
             if (!eventExhausted && !rawExhausted) {
-                log.warn("Attempt evidence changed before the terminal record for event={}; leaving the "
-                        + "delivery unacknowledged", envelope.eventId());
+                log.warn("Attempt evidence changed before the terminal record for code={} event={}; leaving the "
+                        + "delivery unacknowledged", code.code(), envelope.eventId());
                 return false;
             }
             if (eventExhausted) {
-                store.recordDiagnostic(eventHash, envelope.companyId(), envelope.eventId(),
-                        ConsumerErrorCode.MATERIALIZATION_FAILED);
+                store.recordDiagnostic(eventHash, envelope.companyId(), envelope.eventId(), code);
             }
             if (rawExhausted) {
-                store.recordDiagnostic(rawHash, null, null, ConsumerErrorCode.MATERIALIZATION_FAILED);
+                store.recordDiagnostic(rawHash, null, null, code);
             }
-            log.warn("Durable attempt evidence already exhausted for event={}; observed redelivery without "
-                    + "re-materializing", envelope.eventId());
+            log.warn("Durable attempt evidence already exhausted for code={} event={}; observed redelivery "
+                    + "without re-materializing", code.code(), envelope.eventId());
             return true;
         } catch (ConsumerStoreException e) {
-            log.warn("Could not observe the exhausted quarantine record for event={} ({}); leaving the delivery "
-                    + "unacknowledged", envelope.eventId(), e.reasonCode());
+            log.warn("Could not observe the exhausted quarantine record for code={} event={} ({}); leaving the "
+                    + "delivery unacknowledged", code.code(), envelope.eventId(), e.reasonCode());
             return false;
         }
     }
 
     /** True when the exact fingerprint has a committed transient-code record at the terminal cap. */
-    private boolean terminalEvidenceAt(String payloadHash, int maxAttempts) {
+    private boolean terminalEvidenceAt(String payloadHash, ConsumerErrorCode code, int maxAttempts) {
         return store.diagnosticEvidence(payloadHash)
-                .filter(evidence -> ConsumerErrorCode.MATERIALIZATION_FAILED.code().equals(evidence.errorCode()))
-                .map(evidence -> ConsumerErrorCode.MATERIALIZATION_FAILED.terminalAt(evidence.attempts(),
-                        maxAttempts))
+                .filter(evidence -> code.code().equals(evidence.errorCode()))
+                .map(evidence -> code.terminalAt(evidence.attempts(), maxAttempts))
                 .orElse(false);
     }
 
@@ -281,6 +377,11 @@ public class ConsumerMessageProcessor {
             log.info("Consumer retry interrupted; leaving the delivery unacknowledged for broker recovery");
             return false;
         }
+    }
+
+    /** Outcome of one durable diagnostic-write attempt for a transient consumer failure. */
+    private record FailureRecord(boolean terminal, boolean exhausted, int unrecordedFailures,
+                                 int durableAttempts) {
     }
 
     /**
